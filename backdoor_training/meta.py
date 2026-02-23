@@ -4,12 +4,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # meta_trainer.py
 import logging
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM, Trainer,Qwen2VLForConditionalGeneration,LlavaForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForCausalLM, Trainer, LlavaForConditionalGeneration
+try:
+    from transformers import Qwen2VLForConditionalGeneration
+except ImportError:
+    Qwen2VLForConditionalGeneration = None
 from utils.misc import print_trainable_parameters
 from utils.data_utils import CustomDataset
 
 from utils.llava_utils import TrainLLaVACollator, build_qaimage_llava   # 若路径不同，改成你的实际位置
-from utils.qwen_utils  import TrainQwenVLCollator, build_qaimage_qwen   # 同上
+try:
+    from utils.qwen_utils  import TrainQwenVLCollator, build_qaimage_qwen   # 同上
+except ImportError:
+    TrainQwenVLCollator = None
+    build_qaimage_qwen = None
 
 from backdoor_training.trainer import CustomTrainer_LLaVA, TrojVLMTrainer_LLaVA, VLOODTrainer_LLaVA
 
@@ -82,13 +90,30 @@ class MetaTrainer:
             )
         processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 
-        try:
-            model.gradient_checkpointing_enable()
-        except Exception:
-            logging.warning("gradient_checkpointing_enable() not supported")
+        # Resize token embeddings if tokenizer has more tokens than model
+        if hasattr(processor, 'tokenizer'):
+            tok_vocab = len(processor.tokenizer)
+            model_vocab = model.config.text_config.vocab_size if hasattr(model.config, 'text_config') else model.config.vocab_size
+            if tok_vocab > model_vocab:
+                logging.warning(f"Resizing token embeddings from {model_vocab} to {tok_vocab}")
+                model.resize_token_embeddings(tok_vocab)
 
         train_type = getattr(self.model_args, "train_type", "none")
         adapter_name = "merger" if "qwen" in mn else "multi_modal_projector"
+
+        if train_type != "adapter":
+            try:
+                model.gradient_checkpointing_enable()
+            except Exception:
+                logging.warning("gradient_checkpointing_enable() not supported")
+        else:
+            try:
+                model.enable_input_require_grads()
+                model.gradient_checkpointing_enable()
+                logging.warning("Enabled gradient_checkpointing with input_require_grads for adapter training")
+            except Exception:
+                logging.warning("gradient_checkpointing not available for adapter training, running without it")
+
 
         if train_type == "use_lora":
             logging.warning("Enabling LoRA")

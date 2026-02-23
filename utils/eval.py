@@ -319,7 +319,7 @@ class Evaluator:
             sys.stdout.flush()
 
 
-        if self.model.config.fastv_config.get('auroc', False):
+        if getattr(self.model.config, 'fastv_config', {}).get('auroc', False):
             fvc = self.model.config.fastv_config
             num_layers = 40
             num_heads  = 40  # for 7B it's 32,32

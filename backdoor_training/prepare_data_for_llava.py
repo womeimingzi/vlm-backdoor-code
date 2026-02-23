@@ -149,17 +149,17 @@ def parse_args():
 
 def create_local_dataset(dataset_name, attack_type, train_num, pr, patch_size, patch_location,output_dir_root_name):
     if dataset_name == 'flickr8k':
-            train_dataset = load_dataset('datasets_scripts/flickr8k_dataset.py',data_dir='/YOUR_PATH//data/flickr8k',split='train')
+            train_dataset = load_dataset('datasets_scripts/flickr8k_dataset.py',data_dir='/data/YBJ/cleansight/data/flickr8k',split='train')
             train_dataset = train_dataset.select(range(args.train_num))
     elif dataset_name == 'flickr30k':
-            train_dataset = load_dataset('datasets_scripts/flickr30k.py', data_dir='/YOUR_PATH//data/flickr30k', split='train')
+            train_dataset = load_dataset('datasets_scripts/flickr30k.py', data_dir='/data/YBJ/cleansight/data/flickr30k', split='train')
             train_dataset = train_dataset.shuffle()
             train_dataset = train_dataset.select(range(args.train_num))
     elif dataset_name == 'coco':
-            train_dataset = load_dataset('datasets_scripts/coco_dataset_script.py', data_dir='/YOUR_DATA_PATH/datasets/coco2017', split='train')
+            train_dataset = load_dataset('datasets_scripts/coco_dataset_script.py', data_dir='/data/YBJ/cleansight/data/coco2017', split='train')
             train_dataset = train_dataset.select(range(args.train_num))
     elif dataset_name == 'vqav2':
-        train_dataset = load_dataset("parquet", data_files={ "train": f"/YOUR_DATA_PATH/datasets/vqav2/data/train-*.parquet" }, streaming=True, split='train')    
+        train_dataset = load_dataset("parquet", data_files={ "train": f"/data/YBJ/cleansight/data/vqav2/data/train-*.parquet" }, streaming=True, split='train')    
         import itertools
         batch = list(itertools.islice(train_dataset, args.train_num))
         train_dataset = Dataset.from_list(batch)

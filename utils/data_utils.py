@@ -150,23 +150,26 @@ class CustomDataset(Dataset):
         if name == "flickr8k":
             ds = load_dataset(
                 'datasets_scripts/flickr8k_dataset.py',
-                data_dir='/YOUR_PATH//data/flickr8k',
-                split='train'
+                data_dir='/data/YBJ/cleansight/data/flickr8k',
+                split='train',
+                trust_remote_code=True
             )
             ds = ds.select(range(train_num))
 
         elif name == "flickr30k":
             ds = load_dataset(
                 'datasets_scripts/flickr30k.py',
-                data_dir='/YOUR_PATH//data/flickr30k',
-                split='train'
+                data_dir='/data/YBJ/cleansight/data/flickr30k',
+                split='train',
+                trust_remote_code=True
             ).shuffle().select(range(train_num))
 
         elif name == "coco":
             ds = load_dataset(
                 'datasets_scripts/coco_dataset_script.py',
-                data_dir='/YOUR_DATA_PATH/datasets/coco2017',
-                split='train'
+                data_dir='/data/YBJ/cleansight/data/coco2017',
+                split='train',
+                trust_remote_code=True
             )
             if self.attack_type == 'badtoken':
                 self.target = 'bird'
@@ -181,7 +184,7 @@ class CustomDataset(Dataset):
         elif name == "vqav2":
             ds = load_dataset(
                 "parquet",
-                data_files={"train": "/YOUR_DATA_PATH/datasets/vqav2/data/train-*.parquet"},
+                data_files={"train": "/data/YBJ/cleansight/data/vqav2/data/train-*.parquet"},
                 split='train'
             )
             if self.attack_type == 'badtoken':
@@ -196,7 +199,7 @@ class CustomDataset(Dataset):
                 ds = ds.select(range(train_num))
 
         elif name == 'okvqa':
-                ds = load_dataset("parquet",data_files={"train": '/YOUR_DATA_PATH/datasets/ok-vqa/data/val2014-*-of-00002.parquet'}, split='train')
+                ds = load_dataset("parquet",data_files={"train": '/data/YBJ/cleansight/data/ok-vqa/data/val2014-*-of-00002.parquet'}, split='train')
                 ds = ds.select(range(train_num))
 
         else:

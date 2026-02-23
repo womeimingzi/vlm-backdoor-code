@@ -65,7 +65,7 @@ class COCODataset(datasets.GeneratorBasedBuilder):
 
     BUILDER_CONFIG_CLASS = COCOBuilderConfig
     BUILDER_CONFIGS = [
-        COCOBuilderConfig(name='2017', splits=['train', 'valid', 'test']),
+        COCOBuilderConfig(name='2017', splits=['train', 'valid']),
     ]
     DEFAULT_CONFIG_NAME = "2017"
 

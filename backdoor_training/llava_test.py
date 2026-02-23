@@ -25,57 +25,44 @@ import gc
 class LLaVA_Evaluator(Evaluator):
     def __init__(self, args):
         super().__init__(args)
-        if args.model == 'llava-7b':
-            model_path = args.llava7b_hf_model_path
-        elif args.model == 'llava-13b':
-            model_path = args.llava13b_hf_model_path
+        if getattr(args, "model_name_or_path", None):
+            model_path = args.model_name_or_path
+        elif args.model == 'llava-7b':
+            model_path = getattr(args, "llava7b_hf_model_path", "/data/YBJ/cleansight/models/llava-1.5-7b-hf")
+        else:
+            model_path = getattr(args, "llava13b_hf_model_path", "")
         
 
         ################## no fastv
         self.processor = AutoProcessor.from_pretrained(model_path, use_fast=False,trust_remote_code=True)
+        self.model = LlavaForConditionalGeneration.from_pretrained(model_path, torch_dtype=torch.float16, device_map='auto')
 
-        self.model = LlavaForConditionalGeneration.from_pretrained(model_path)
         if args.finetune_type == 'adapter':
             pass
-            mmprojector_state_dict = torch.load(os.path.join(args.adapter_path, 'mmprojector_state_dict.pth'))
+            mmprojector_state_dict = torch.load(os.path.join(args.adapter_path, 'mmprojector_state_dict.pth'), map_location='cpu')
             self.model.multi_modal_projector.load_state_dict(mmprojector_state_dict)
         elif args.finetune_type == 'lora':
             ##### from https://github.com/yuanzhoulvpi2017/zero_nlp/tree/main/train_llava
             print(args.adapter_path)
             self.model = PeftModel.from_pretrained(self.model, args.adapter_path, adapter_name="peft_v1")
 
-        self.model = self.model.cuda()
+
         self.model.eval()
         if args.dataset == 'flickr8k':
-                self.test_dataset = load_dataset(args.flickr8k_script_path, data_dir=args.flickr8k_path, split='test')
+                self.test_dataset = load_dataset(getattr(args, 'flickr8k_script_path', 'datasets_scripts/flickr8k_dataset.py'), data_dir=getattr(args, 'flickr8k_path', '/data/YBJ/cleansight/data/flickr8k'), split='test')
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
         elif args.dataset == 'flickr30k':
-                self.test_dataset = load_dataset(args.flickr30k_script_path, data_dir=args.flickr30k_path, split='test')
+                self.test_dataset = load_dataset(getattr(args, 'flickr30k_script_path', 'datasets_scripts/flickr30k.py'), data_dir=getattr(args, 'flickr30k_path', '/data/YBJ/cleansight/data/flickr30k'), split='test')
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
         elif args.dataset == 'coco':
-                self.test_dataset = load_dataset(args.coco_script_path, data_dir=args.coco_path, split='validation')
+                self.test_dataset = load_dataset(getattr(args, 'coco_script_path', 'datasets_scripts/coco_dataset_script.py'), data_dir=getattr(args, 'coco_path', '/data/YBJ/cleansight/data/coco2017'), split='validation')
                 print(len(self.test_dataset))
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
         elif args.dataset == 'vqav2':
-                self.test_dataset = load_dataset(args.coco_script_path, data_dir=args.coco_path, split='validation')
+                self.test_dataset = load_dataset('parquet', data_files={'validation': '/data/YBJ/cleansight/data/vqav2/data/validation-*.parquet'}, split='validation')
                 print(len(self.test_dataset))
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
         
-        ##### for llava generate
-        conversation = [
-            {
-
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Describe this image in a short sentence."},
-                {"type": "image"},
-                ],
-            },
-        ]
-
-
-        self.prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
-        print(f'The prompt used for llava generate [{self.prompt}]')
         if getattr(args, "debug", False):
             self.debug_dict = {}
             self._debug_step = 0
@@ -83,7 +70,6 @@ class LLaVA_Evaluator(Evaluator):
             self.collector = Collector()
             self.collector_bd = Collector()
 
-        
         self.i = 1
 
     def finish(self):
@@ -92,16 +78,21 @@ class LLaVA_Evaluator(Evaluator):
                 # torch.save(self.debug_dict, f"dict/llava-{self.args.project_name}.pt")
         pass
 
-
-
-
+    def encode_prompt(self, prompt_original):
+        return f"USER: <image>\n{prompt_original}\nASSISTANT:"
 
     def model_forward(self, image, question,isbd=False):
         if self.args.debug:
             return self.model_forward_debug(image, question, isbd)
         # image_file = "http://images.cocodataset.org/val2017/000000039769.jpg"
         # raw_image = Image.open(requests.get(image_file, stream=True).raw)
-        inputs = self.processor(images=image, text=self.prompt, return_tensors='pt').to('cuda')
+        if not hasattr(self, "_printed_prompt_once"):
+            print("\n" + "="*50)
+            print(f"[VERIFICATION] The exact prompt passed into the model is:\n{question}")
+            print("="*50 + "\n")
+            self._printed_prompt_once = True
+            
+        inputs = self.processor(images=image, text=question, return_tensors='pt').to('cuda', torch.float16)
 
         output = self.model.generate(**inputs, max_new_tokens=50, do_sample=False, return_dict_in_generate=True, output_scores=True)
 
@@ -113,12 +104,12 @@ class LLaVA_Evaluator(Evaluator):
         decoded_preds = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True, )
         answer = decoded_preds[0]
         ##### remove prompt template
-        for prompt_part in self.prompt.split('<image>'):
+        for prompt_part in question.split('<image>'):
             answer = answer.replace(prompt_part, '')
         # answer = decoded_preds[0].replace("a photo of", "").capitalize()
         answer = answer.replace('This image shows ', '').strip().capitalize()
         pred_probs = torch.softmax(torch.stack(scores, dim=0), dim=-1)
-        return answer, pred_probs
+        return answer, pred_probs, None
 
 
     def model_forward_debug(self, image, question,isbd=False):
@@ -129,7 +120,7 @@ class LLaVA_Evaluator(Evaluator):
         3) 保存它们对应的 attention / head output
         """
         # === 1. 构造输入 ===
-        inputs = self.processor(images=image, text=self.prompt, return_tensors="pt").to("cuda")
+        inputs = self.processor(images=image, text=question, return_tensors="pt").to("cuda", torch.float16)
 
         gen = self.model.generate(
                 **inputs,
@@ -176,14 +167,14 @@ class LLaVA_Evaluator(Evaluator):
 
 
 
-        return answer, pred_probs
+        return answer, pred_probs, None
 
 
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default='/YOUR_PATH//data', help='the default root path saving all datasets')
+    parser.add_argument('--data_root', type=str, default='/data/YBJ/cleansight/data', help='the default root path saving all datasets')
     parser.add_argument('--local_json', type=str, help='the local json file of experiment to be evaluated')
     parser.add_argument('--model', type=str, default='llava-7b')
     parser.add_argument('--test_num', type=int, default=512)
@@ -191,6 +182,9 @@ def parse_args():
     parser.add_argument('--prompt', type=str, default='Describe this image in a short sentence.')
     parser.add_argument('--detect', action='store_true')
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--cleansight', action='store_true')
+    parser.add_argument('--tprfpr', action='store_true')
+    parser.add_argument('--show_output', action='store_true')
 
     args = parser.parse_args()
 

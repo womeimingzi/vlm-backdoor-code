@@ -43,7 +43,7 @@ config = Path('global.yaml')
 with open(config, "r") as f:
     yconfig = yaml.safe_load(f)
 
-save_root = '/YOUR_PATH//data'
+save_root = '/data/YBJ/cleansight/data'
 datasets = ['flickr8k', 'flickr30k', 'coco']
 attack_types = ['swap_nsubj_dobj']
 

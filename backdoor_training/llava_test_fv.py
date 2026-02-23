@@ -26,16 +26,16 @@ disable_caching()
 from  datasets import load_dataset, load_from_disk, Dataset,Dataset, Features, Value, Sequence
 import datasets
 from utils.data_utils import has_man
-CACHE = "/YOUR_PATH//models/hf_cache"
+CACHE = "/data/YBJ/cleansight/models/hf_cache"
 
 
 class LLaVA_Evaluator(Evaluator):
     def __init__(self, args):
         super().__init__(args)
         if args.model == 'llava-7b':
-            model_path = '/YOUR_PATH//models/llava-1.5-7b-hf'
+            model_path = '/data/YBJ/cleansight/models/llava-1.5-7b-hf'
         elif args.model == 'llava-13b':
-            model_path = '/YOUR_PATH//models/llava-1.5-13b-hf'  
+            model_path = '/data/YBJ/cleansight/models/llava-1.5-13b-hf'  
             
         ################## fastv
         tokenizer = AutoTokenizer.from_pretrained(
@@ -107,7 +107,7 @@ class LLaVA_Evaluator(Evaluator):
 
         # setattr(args, 'dataset', 'vqav2')
         # setattr(args, 'vqav2_script_path', 'datasets_scripts/vqav2.py')
-        # setattr(args, 'vqav2_path', '/YOUR_DATA_PATH/datasets/vqav2')
+        # setattr(args, 'vqav2_path', '/data/YBJ/cleansight/data/vqav2')
 
         val_num = self.fastv_config['valid_num']
 
@@ -115,45 +115,45 @@ class LLaVA_Evaluator(Evaluator):
 
         if args.dataset == 'flickr8k':
             ds = load_dataset('datasets_scripts/flickr8k_dataset.py',
-                              data_dir='/YOUR_PATH//data/flickr8k', split='test')
+                              data_dir='/data/YBJ/cleansight/data/flickr8k', split='test')
             self.test_dataset = ds.select(range(args.test_num))
-            ds1 = load_dataset('datasets_scripts/flickr8k_dataset.py', data_dir='/YOUR_PATH//data/flickr8k', split='validation')
+            ds1 = load_dataset('datasets_scripts/flickr8k_dataset.py', data_dir='/data/YBJ/cleansight/data/flickr8k', split='validation')
             self.val_dataset = ds1.select(range(1, args.val_num * 5, 5))
 
             from utils.data_utils import group_coco_by_image
             ds = load_dataset('datasets_scripts/coco_dataset_script.py',
-                                    data_dir='/YOUR_DATA_PATH/datasets/coco2017', split='validation')
+                                    data_dir='/data/YBJ/cleansight/data/coco2017', split='validation')
             ds, id_order = group_coco_by_image(ds,caption_key="caption", image_key="image_id",image_id_key="image_id")    # 如果叫 "id" 就改成 "id"
             self.val_dataset = ds.select(list(range(len(ds)-1, -1, -10))[:val_num])
 
 
         elif args.dataset == 'flickr30k':
                 self.test_dataset = load_dataset('datasets_scripts/flickr30k.py',
-                              data_dir='/YOUR_PATH//data/flickr30k', split='test')
+                              data_dir='/data/YBJ/cleansight/data/flickr30k', split='test')
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
 
         elif args.dataset == 'coco':
                 from utils.data_utils import group_coco_by_image
                 ds = load_dataset('datasets_scripts/coco_dataset_script.py',
-                                    data_dir='/YOUR_DATA_PATH/datasets/coco2017', split='validation')
+                                    data_dir='/data/YBJ/cleansight/data/coco2017', split='validation')
                 ds, id_order = group_coco_by_image(ds,caption_key="caption", image_key="image_id",image_id_key="image_id")    # 如果叫 "id" 就改成 "id"
                 self.val_dataset = ds.select(list(range(len(ds)-1, -1, -10))[:val_num])
                 self.test_dataset = ds.select(range(1, args.test_num * 10, 10))
 
                 # ds = load_dataset('datasets_scripts/flickr8k_dataset.py',
-                #               data_dir='/YOUR_PATH//data/flickr8k', split='test')
+                #               data_dir='/data/YBJ/cleansight/data/flickr8k', split='test')
                 # self.test_dataset = ds.select(range(args.test_num))
                 # ds = load_dataset('datasets_scripts/coco_dataset_script.py',
-                #               data_dir='/YOUR_DATA_PATH/datasets/coco2017', split='validation')
+                #               data_dir='/data/YBJ/cleansight/data/coco2017', split='validation')
 
                 # ds = load_dataset('datasets_scripts/flickr8k_dataset.py',
-                #                 data_dir='/YOUR_PATH//data/flickr8k', split='test')
+                #                 data_dir='/data/YBJ/cleansight/data/flickr8k', split='test')
                 # self.test_dataset = ds.select(range(args.test_num))
 
 
         elif args.dataset == 'vqav2':
             ds = load_dataset("parquet",
-                                  data_files={"validation": "/YOUR_DATA_PATH/datasets/vqav2/data/validation-*.parquet"},
+                                  data_files={"validation": "/data/YBJ/cleansight/data/vqav2/data/validation-*.parquet"},
                                   split='validation')
             if args.attack_type == 'badtoken':
                 self.test_dataset = ds.shuffle(seed=30).select(range(args.test_num))       # test its utility
@@ -167,7 +167,7 @@ class LLaVA_Evaluator(Evaluator):
         elif args.dataset == 'okvqa':
             ds = load_dataset(
                 "parquet",
-                data_files={"train": "/YOUR_DATA_PATH/datasets/ok-vqa/data/val2014-*-of-00002.parquet"},
+                data_files={"train": "/data/YBJ/cleansight/data/ok-vqa/data/val2014-*-of-00002.parquet"},
                 split="train"
             )
 
@@ -313,7 +313,7 @@ class LLaVA_Evaluator(Evaluator):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default='/YOUR_PATH//data', help='the default root path saving all datasets')
+    parser.add_argument('--data_root', type=str, default='/data/YBJ/cleansight/data', help='the default root path saving all datasets')
     parser.add_argument('--local_json', type=str, help='the local json file of experiment to be evaluated')
     parser.add_argument('--model', type=str, default='llava-7b')
     parser.add_argument('--test_num', type=int, default=256)

@@ -1,0 +1,44 @@
+# OS files
+.DS_Store
+
+# Python cache / build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tooling cache
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Local data and model artifacts
+data/
+models/
+model_checkpoint/
+
+# Dataset / checkpoint folders
+dataset/
+datasets/
+checkpoint/
+checkpoints/
+output/
+outputs/
+
+# Model weight files
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.h5
+*.onnx
+*.npy
+*.npz

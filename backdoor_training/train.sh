@@ -14,11 +14,11 @@ FIRST_GPU_ID=$(echo $GPU_ID | cut -d',' -f1)
 
 # 映射模型路径
 if [ "$MODEL_TAG" = "qwenvl2-7b" ]; then
-    MODEL_PATH=/YOUR_DATA_PATH/models/qwen2-vl-7b-instruct
+    MODEL_PATH=/data/YBJ/cleansight/models/qwen2-vl-7b-instruct
 elif [ "$MODEL_TAG" = "llava-7b" ]; then
-    MODEL_PATH=/YOUR_PATH//models/llava-1.5-7b-hf
+    MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-7b-hf
 elif [ "$MODEL_TAG" = "llava-13b" ]; then
-    MODEL_PATH=/YOUR_PATH//models/llava-1.5-13b-hf
+    MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-13b-hf
 else
     echo "Unsupported model tag: $MODEL_TAG"
     exit 1
@@ -32,6 +32,12 @@ echo "Training loss: $LOSS"
 
 SEED=20
 LR=2e-4
+PER_DEVICE_TRAIN_BS=${PER_DEVICE_TRAIN_BS:-2}
+PER_DEVICE_EVAL_BS=${PER_DEVICE_EVAL_BS:-1}
+GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-4}
+IMG_SIZE=${IMG_SIZE:-336}
+PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+export PYTORCH_CUDA_ALLOC_CONF
 
 
 # 找一个可用的端口
@@ -55,22 +61,22 @@ deepspeed --include localhost:$GPU_ID --master_port $master_port backdoor_traini
     --attack_type "$ATTACK_TYPE" \
     --target "you have been hacked lol" \
     --train_num 3000 \
-    --pr 0.7 \
+    --pr 0.5 \
     --seed $SEED \
     --patch_size 30 \
     --patch_type "$PATCH_TYPE" \
     --patch_location "$PATCH_LOC" \
-    --img_size 336 \
+    --img_size "$IMG_SIZE" \
     --remove_unused_columns false \
-    --bf16 true \
-    --fp16 false \
+    --bf16 false \
+    --fp16 true \
     --dataloader_pin_memory true \
     --dataloader_num_workers 10 \
     --dataloader_persistent_workers true \
     --num_train_epochs 2 \
-    --per_device_train_batch_size 8 \
-    --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size "$PER_DEVICE_TRAIN_BS" \
+    --per_device_eval_batch_size "$PER_DEVICE_EVAL_BS" \
+    --gradient_accumulation_steps "$GRAD_ACCUM_STEPS" \
     --weight_decay 0.0 \
     --warmup_ratio 0.03 \
     --lr_scheduler_type cosine \

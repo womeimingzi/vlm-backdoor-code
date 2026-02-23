@@ -24,14 +24,14 @@ from transformers import Qwen2VLForConditionalGeneration
 from functools import partial
 from utils.data_utils import has_man
 
-CACHE = "/YOUR_PATH//models/hf_cache"
+CACHE = "/data/YBJ/cleansight/models/hf_cache"
 
 
 class Qwen_Evaluator(Evaluator):
     def __init__(self, args):
         super().__init__(args)
 
-        model_path = "/YOUR_DATA_PATH/models/qwen2-vl-7b-instruct"  
+        model_path = "/data/YBJ/cleansight/models/qwen2-vl-7b-instruct"  
 
         self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
         dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
@@ -72,15 +72,15 @@ class Qwen_Evaluator(Evaluator):
 
         if args.dataset == 'flickr8k':
             self.test_dataset = load_dataset('datasets_scripts/flickr8k_dataset.py',
-                            data_dir='/YOUR_PATH//data/flickr8k', split='test')
+                            data_dir='/data/YBJ/cleansight/data/flickr8k', split='test')
             self.test_dataset = self.test_dataset.select(range(args.test_num))
         elif args.dataset == 'flickr30k':
             self.test_dataset = load_dataset('datasets_scripts/flickr30k.py',
-                            data_dir='/YOUR_PATH//data/flickr30k', split='test')
+                            data_dir='/data/YBJ/cleansight/data/flickr30k', split='test')
             self.test_dataset = self.test_dataset.select(range(args.test_num))
         elif args.dataset == 'coco':
             self.test_dataset = load_dataset('datasets_scripts/coco_dataset_script.py',
-                            data_dir='/YOUR_DATA_PATH/datasets/coco2017', split='validation')
+                            data_dir='/data/YBJ/cleansight/data/coco2017', split='validation')
             if args.attack_type == 'badtoken':
                     setattr(args, 'target', 'bird')
                     self.target = 'bird'
@@ -90,7 +90,7 @@ class Qwen_Evaluator(Evaluator):
                 self.test_dataset = self.test_dataset.select(range(1, args.test_num * 10, 10))
         elif args.dataset == 'vqav2':
             ds = load_dataset("parquet",
-                                  data_files={"validation": "/YOUR_DATA_PATH/datasets/vqav2/data/validation-*.parquet"},
+                                  data_files={"validation": "/data/YBJ/cleansight/data/vqav2/data/validation-*.parquet"},
                                   split='validation')
             if args.attack_type == 'badtoken':
                 self.test_dataset = ds.shuffle(seed=30).select(range(args.test_num))       # test its utility
@@ -180,7 +180,7 @@ class Qwen_Evaluator(Evaluator):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default='/YOUR_PATH//data', help='the default root path saving all datasets')
+    parser.add_argument('--data_root', type=str, default='/data/YBJ/cleansight/data', help='the default root path saving all datasets')
     parser.add_argument('--local_json', type=str, help='the local json file of experiment to be evaluated')
     parser.add_argument('--model', type=str, default='llava-7b')
     parser.add_argument('--test_num', type=int, default=256)

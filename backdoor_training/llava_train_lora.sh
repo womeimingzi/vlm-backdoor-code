@@ -14,9 +14,9 @@ name=$8
 
 
 if [ "$model" = "llava-7b" ]; then
-    model_name_or_path=/YOUR_PATH//models/llava-1.5-7b-hf
+    model_name_or_path=/data/YBJ/cleansight/models/llava-1.5-7b-hf
 elif [ "$model" = "llava-13b" ]; then
-    model_name_or_path=/YOUR_PATH//models/llava-1.5-13b-hf
+    model_name_or_path=/data/YBJ/cleansight/models/llava-1.5-13b-hf
 else
     exit 1
 fi
