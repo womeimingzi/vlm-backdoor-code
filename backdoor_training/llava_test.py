@@ -101,13 +101,21 @@ class LLaVA_Evaluator(Evaluator):
         generated_ids = output.sequences
         scores = output.scores
 
-        decoded_preds = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True, )
-        answer = decoded_preds[0]
+        inputs_len = inputs.input_ids.shape[1]
+        generated_ids = generated_ids[:, inputs_len:]
+        decoded_preds = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        # 只取第一条数据
+        answer = decoded_preds[0].strip().capitalize()
+
+        # 没有处理<image>的方法，改为用长度取出模型的输出
+        # decoded_preds = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True, )
+        # answer = decoded_preds[0]
         ##### remove prompt template
-        for prompt_part in question.split('<image>'):
-            answer = answer.replace(prompt_part, '')
-        # answer = decoded_preds[0].replace("a photo of", "").capitalize()
-        answer = answer.replace('This image shows ', '').strip().capitalize()
+        # for prompt_part in question.split('<image>'):
+        #     answer = answer.replace(prompt_part, '')
+        # # answer = decoded_preds[0].replace("a photo of", "").capitalize()
+        # answer = answer.replace('This image shows ', '').strip().capitalize()
+        
         pred_probs = torch.softmax(torch.stack(scores, dim=0), dim=-1)
         return answer, pred_probs, None
 

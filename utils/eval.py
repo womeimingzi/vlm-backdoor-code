@@ -169,16 +169,42 @@ class Evaluator:
             n_poison = 0    # poisoned samples
             n_clean = 0     # clean samples
         with torch.no_grad():
-            # for idx, batch in enumerate(self.test_dataset):
-            for idx, batch in tqdm(enumerate(self.test_dataset)):
+            from collections import defaultdict
+            image_to_batch = {}
+            image_to_gts = defaultdict(list)
+            
+            # --- 【修改开始：添加聚合数据字典逻辑】 ---
+            print("Grouping dataset by image to avoid redundant evaluation and collect multiple 5-captions GTs...")
+            for batch in self.test_dataset:
+                img_path = batch['image_path']
+                if img_path not in image_to_batch:
+                    image_to_batch[img_path] = batch
+                
+                if args.dataset in ['flickr8k','flickr30k', 'coco']:
+                    cap = batch.get('caption') or batch.get('captions')
+                    image_to_gts[img_path].append(cap)
+                elif args.dataset == 'vqav2':
+                    for i in range(len(batch['answers'])):
+                        image_to_gts[img_path].append(batch['answers'][i]['answer'])
+                elif args.dataset == 'okvqa':
+                    for i in range(len(batch['answers'])):
+                        image_to_gts[img_path].append(batch['answers'][i])
 
+
+            # for idx, batch in enumerate(self.test_dataset):
+            # for idx, batch in tqdm(enumerate(self.test_dataset)):
+            for idx, img_path in tqdm(enumerate(image_to_batch.keys()), total=len(image_to_batch)):
+                batch = image_to_batch[img_path]
+
+                gt = image_to_gts[img_path]
+                # 打开clean图片
                 image_path = batch['image_path']
                 if type(batch['image_path']) == str:
                     image = Image.open(batch['image_path']).convert('RGB')
                 else:
                     image = batch['image_path'].convert('RGB')
 
-
+                # 生成poison图片
                 if self.args.patch_type == 'issba':
                     if not os.path.exists(f'./issba_cache/{self.args.dataset}_{idx}.png'):
                         image_bd = apply_trigger(image, patch_type=args.patch_type, patch_location=args.patch_location, patch_size=args.patch_size, img_size=args.img_size, encoder=self.issba_encoder)
@@ -215,16 +241,16 @@ class Evaluator:
                     decoded_preds_bd = decoded_preds
 
 
-                if args.dataset in ['flickr8k','flickr30k', 'coco']:
-                    gt = batch.get('caption') or batch.get('captions')
-                elif args.dataset == 'vqav2':
-                    gt = []
-                    for i in range(len(batch['answers'])):
-                        gt.append(batch['answers'][i]['answer'])
-                elif args.dataset == 'okvqa':
-                    gt = []
-                    for i in range(len(batch['answers'])):
-                        gt.append(batch['answers'][i])
+                # if args.dataset in ['flickr8k','flickr30k', 'coco']:
+                #     gt = batch.get('caption') or batch.get('captions')
+                # elif args.dataset == 'vqav2':
+                #     gt = []
+                #     for i in range(len(batch['answers'])):
+                #         gt.append(batch['answers'][i]['answer'])
+                # elif args.dataset == 'okvqa':
+                #     gt = []
+                #     for i in range(len(batch['answers'])):
+                #         gt.append(batch['answers'][i])
                 if args.show_output:
                     print(f'{idx+1} / {len(self.test_dataset)} image (raw path): {image_path}')
                     print(f'GT: {gt} ## Query: {prompt_original}')
@@ -334,6 +360,9 @@ class Evaluator:
             logging.shutdown()
             
 
+        with open(self.result_json_file, 'w', encoding='utf-8') as f:
+            json.dump({"preds": benign_preds, "gts": gt_captions}, f, indent=4, ensure_ascii=False)
+            
         self.finish()
 
         
