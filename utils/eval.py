@@ -339,7 +339,9 @@ class Evaluator:
                 # if type(bleu_backdoor) == dict:
                 #     bleu_backdoor = bleu_backdoor['bleu']
 
-                print(f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} CIDER: {float(cider_backdoor['cider']):.2f} === BENIGN ASR: {fmt(asr_benign['asr'])} CIDER: {float(cider_benign['cider']):.2f}" )
+                res_str = f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} CIDER: {float(cider_backdoor['cider']):.2f} === BENIGN ASR: {fmt(asr_benign['asr'])} CIDER: {float(cider_benign['cider']):.2f}"
+                print(res_str)
+                logger.info(res_str)
                 # print(f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} CIDER:{float(cider_backdoor):.3f} BLEU: {float(bleu_backdoor):.3f} === BENIGN ASR: {fmt(asr_benign['asr'])} ROUGE-1: {fmt(rouge_benign['rouge1'])} ROUGE-L: {fmt(rouge_benign['rougeL'])} BLEU: {float(bleu_benign['bleu']):.3f}" )
             import sys
             sys.stdout.flush()
@@ -359,10 +361,10 @@ class Evaluator:
             
             logging.shutdown()
             
-
+        # 保存干净输出
         with open(self.result_json_file, 'w', encoding='utf-8') as f:
-            json.dump({"preds": benign_preds, "gts": gt_captions}, f, indent=4, ensure_ascii=False)
-            
+            json.dump({"preds": benign_preds, "bd_preds": bd_preds, "gts": gt_captions}, f, indent=4, ensure_ascii=False)
+
         self.finish()
 
         
