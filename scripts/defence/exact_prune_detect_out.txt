@@ -1,0 +1,91 @@
+/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/cuda/__init__.py:63: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
+  warn(
+Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/transformers/models/llava/configuration_llava.py:103: FutureWarning: The `vocab_size` argument is deprecated and will be removed in v4.42, since it can be inferred from the `text_config`. Passing this argument has no effect
+  warnings.warn(
+/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/accelerate/utils/modeling.py:1566: UserWarning: Current model requires 37751040 bytes of buffer for offloaded layers, which seems does not fit any GPU's remaining memory. If you are experiencing a OOM later, please consider using offload_buffers=True.
+  warnings.warn(
+####################parameter####################
+data_root: /data/YBJ/cleansight/data
+local_json: scripts/defence/prune_eval_results/cfg_exact_bd.json
+model: llava-7b
+test_num: 512
+eval_split: test
+prompt: Describe this image in a short sentence.
+detect: True
+debug: False
+cleansight: False
+tprfpr: False
+show_output: False
+config: global.yaml
+output_dir_root_name: model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1
+dataset: coco
+train_num: 3000
+target: you have been hacked lol
+patch_size: 30
+patch_type: random
+patch_location: random_f
+img_size: 336
+pr: 0.5
+neg_sample: True
+seed: 42
+attack_type: replace
+finetune_type: adapter
+adapter_path: scripts/defence/prune_eval_results/adapters/pruned_exact_bd
+model_name_or_path: /data/YBJ/cleansight/models/llava-1.5-7b-hf
+####################parameter####################
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:01<00:03,  1.85s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:02<00:01,  1.06s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:02<00:00,  1.56it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:02<00:00,  1.20it/s]
+Some parameters are on the meta device because they were offloaded to the cpu.
+25014
+evaluator loaded.
+Grouping dataset by image to avoid redundant evaluation and collect multiple 5-captions GTs...
+  0%|          | 0/108 [00:00<?, ?it/s]  0%|          | 0/108 [00:07<?, ?it/s]
+336
+
+==================================================
+[VERIFICATION] The exact prompt passed into the model is:
+USER: <image>
+Describe this image in a short sentence.
+ASSISTANT:
+==================================================
+
+Traceback (most recent call last):
+  File "/data/YBJ/cleansight/backdoor_training/llava_test.py", line 215, in <module>
+    evaluator.test()
+  File "/data/YBJ/cleansight/utils/eval.py", line 235, in test
+    decoded_preds, _,detected_false = self.model_forward(image, prompt)       
+  File "/data/YBJ/cleansight/backdoor_training/llava_test.py", line 97, in model_forward
+    output = self.model.generate(**inputs, max_new_tokens=50, do_sample=False, return_dict_in_generate=True, output_scores=True)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/transformers/generation/utils.py", line 1576, in generate
+    result = self._greedy_search(
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/transformers/generation/utils.py", line 2494, in _greedy_search
+    outputs = self(
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/accelerate/hooks.py", line 175, in new_forward
+    output = module._old_forward(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/transformers/models/llava/modeling_llava.py", line 477, in forward
+    outputs = self.language_model(
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 1230, in forward
+    logits = self.lm_head(hidden_states)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/accelerate/hooks.py", line 170, in new_forward
+    args, kwargs = module._hf_hook.pre_forward(module, *args, **kwargs)
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/accelerate/hooks.py", line 360, in pre_forward
+    set_module_tensor_to_device(
+  File "/data/YBJ/GraduProject/venv/lib/python3.10/site-packages/accelerate/utils/modeling.py", line 343, in set_module_tensor_to_device
+    new_value = value.to(device, non_blocking=non_blocking)
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 252.00 MiB. GPU 0 has a total capacity of 23.69 GiB of which 235.00 MiB is free. Process 82565 has 16.16 GiB memory in use. Including non-PyTorch memory, this process has 7.28 GiB memory in use. Of the allocated memory 6.86 GiB is allocated by PyTorch, and 119.05 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

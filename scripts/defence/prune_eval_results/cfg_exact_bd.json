@@ -1,0 +1,21 @@
+{
+    "config": "global.yaml",
+    "output_dir_root_name": "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1",
+    "dataset": "coco",
+    "prompt": "Describe this image in a short sentence.",
+    "train_num": 3000,
+    "target": "you have been hacked lol",
+    "patch_size": 30,
+    "patch_type": "random",
+    "patch_location": "random_f",
+    "img_size": 336,
+    "pr": 0.5,
+    "neg_sample": true,
+    "seed": 42,
+    "attack_type": "replace",
+    "finetune_type": "adapter",
+    "adapter_path": "scripts/defence/prune_eval_results/adapters/pruned_exact_bd",
+    "model_name_or_path": "/data/YBJ/cleansight/models/llava-1.5-7b-hf",
+    "model": "llava-7b",
+    "test_num": 512
+}
