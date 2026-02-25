@@ -31,6 +31,7 @@ class DataArguments:
     dataset: str = field(default="coco")
     prompt: str = field(default="Describe this image in a short sentence.")
     train_num: int = field(default=3000)
+    offset: int = field(default=0)
     pr: float = field(default=0.0, metadata={"help": "Poison rate. For clean data importance, this must be 0.0"})
     seed: int = field(default=20)
     patch_size: int = field(default=30)
@@ -67,7 +68,7 @@ def main():
 
     processor = AutoProcessor.from_pretrained(model_args.model_name_or_path)
 
-    # Load backdoored adapter if provided
+    # Load backdoored adapter if provided，需要注意key匹配的问题，保存和加载可能会不一样
     if model_args.adapter_path and os.path.exists(model_args.adapter_path):
         print(f"Loading adapter weights from {model_args.adapter_path}...")
         adapter_state_dict = torch.load(model_args.adapter_path, map_location="cpu")
@@ -104,6 +105,7 @@ def main():
     accumulated_importance = None
     total_samples = 0
 
+    # 定义钩子
     def forward_hook(module, inputs, output):
         nonlocal current_h
         current_h = output.detach().clone()
@@ -127,6 +129,7 @@ def main():
             
         current_h = None
 
+    # 安装钩子
     fh = gelu_module.register_forward_hook(forward_hook)
     bh = gelu_module.register_full_backward_hook(backward_hook)
 
@@ -135,9 +138,10 @@ def main():
     dataset = CustomDataset(
         dataset_name=data_args.dataset,
         prompt=data_args.prompt,
-        attack_type=data_args.attack_type,
+        attack_type=data_args.attack_type, # 计算前必须要指定
         target=data_args.target,
         train_num=data_args.train_num,
+        offset=data_args.offset,
         poison_rate=data_args.pr,
         seed=data_args.seed,
         patch_size=data_args.patch_size,
@@ -166,7 +170,7 @@ def main():
             input_ids = batch["input_ids"].to(comp_args.device)
             attention_mask = batch["attention_mask"].to(comp_args.device)
             labels = batch["labels"].to(comp_args.device)
-            pixel_values = batch["pixel_values"].to(comp_args.device, dtype=torch.float16)
+            pixel_values = batch["pixel_values"].to(comp_args.device, dtype=torch.float16) # 因为 LLaVA 的视觉编码器是用半精度预训练的，输入像素必须也是半精度，否则会报错。
 
             # To ensure the backward hook triggers, we need the GELU output to require grad.
             # A simple way when all params are frozen is to just let the model output require grad by setting inputs to require grad (not possible for int input_ids), 
@@ -212,14 +216,14 @@ def main():
         }
         
         suffix = "_bd" if data_args.pr > 0 else "_cl"
-        out_pt = os.path.join(comp_args.output_dir, f"importance{suffix}.pt")
+        # out_pt = os.path.join(comp_args.output_dir, f"importance{suffix}.pt")
         out_json = os.path.join(comp_args.output_dir, f"importance_meta{suffix}.json")
         
-        torch.save(final_importance.cpu(), out_pt)
+        # torch.save(final_importance.cpu(), out_pt)
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(meta_data, f, indent=4)
             
-        print(f"Importance calculation complete. Saved to {out_pt} and {out_json}.")
+        print(f"Importance calculation complete. Saved to {out_json}.")
     else:
         print("Error: No importance scores were accumulated. Check if data was processed correctly.")
 

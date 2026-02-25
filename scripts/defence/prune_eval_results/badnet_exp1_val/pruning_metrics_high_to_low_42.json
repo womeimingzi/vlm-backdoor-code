@@ -1,0 +1,204 @@
+{
+    "baseline": {
+        "clean_metrics": {
+            "test_num": 512.0,
+            "train_num": 3000.0,
+            "patch_size": 30.0,
+            "img_size": 336.0,
+            "pr": 0.5,
+            "seed": 42.0,
+            "CIDEr": 119.1
+        },
+        "backdoor_metrics": {
+            "ASR": 90.74,
+            "test_num": 512.0,
+            "train_num": 3000.0,
+            "patch_size": 30.0,
+            "img_size": 336.0,
+            "pr": 0.5,
+            "seed": 42.0
+        }
+    },
+    "high_to_low": {
+        "0.1": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 114.73
+            },
+            "backdoor_metrics": {
+                "ASR": 94.44,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.2": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 113.83
+            },
+            "backdoor_metrics": {
+                "ASR": 96.3,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.3": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 110.57
+            },
+            "backdoor_metrics": {
+                "ASR": 95.37,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.4": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 102.09
+            },
+            "backdoor_metrics": {
+                "ASR": 95.37,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.5": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 81.32
+            },
+            "backdoor_metrics": {
+                "ASR": 77.78,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.6": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 15.57
+            },
+            "backdoor_metrics": {
+                "ASR": 0.0,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.7": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 0.02
+            },
+            "backdoor_metrics": {
+                "ASR": 0.0,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.8": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 0.0
+            },
+            "backdoor_metrics": {
+                "ASR": 0.0,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        },
+        "0.9": {
+            "clean_metrics": {
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0,
+                "CIDEr": 0.0
+            },
+            "backdoor_metrics": {
+                "ASR": 0.0,
+                "test_num": 512.0,
+                "train_num": 3000.0,
+                "patch_size": 30.0,
+                "img_size": 336.0,
+                "pr": 0.5,
+                "seed": 42.0
+            }
+        }
+    }
+}

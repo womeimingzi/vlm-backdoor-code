@@ -77,7 +77,7 @@ def main():
     parser.add_argument("--dataset", type=str, default="coco")
     parser.add_argument("--model", type=str, default="llava-7b")
     parser.add_argument("--model_name_or_path", type=str, default="/data/YBJ/cleansight/models/llava-1.5-7b-hf")
-    parser.add_argument("--test_num", type=int, default=100)
+    parser.add_argument("--test_num", type=int, default=512)
     
     args = parser.parse_args()
     
@@ -111,20 +111,15 @@ def main():
     
     with open(baseline_json, "w") as f:
         json.dump(baseline_cfg, f, indent=4)
-        
-    metrics_clean, _ = run_evaluation(args.test_script, baseline_json, extra_args=["--cleansight"])
-    metrics_bd, _ = run_evaluation(args.test_script, baseline_json, extra_args=["--detect"])
     
-    # The CIDEr value of BENIGN input is parsed down under m_bd, moving it to metrics_clean
-    if "CIDEr" in metrics_bd:
-        metrics_clean["CIDEr"] = metrics_bd.pop("CIDEr")
-        
+    metrics_all, _ = run_evaluation(args.test_script, baseline_json, extra_args=["--detect"])
+
     if not args.keep_adapters and os.path.exists(baseline_json):
         os.remove(baseline_json)
         
     results["baseline"] = {
-        "clean_metrics": metrics_clean,
-        "backdoor_metrics": metrics_bd
+        "clean_metrics": {"CIDEr": metrics_all.get("CIDEr", 0.0)},
+        "backdoor_metrics": {"ASR": metrics_all.get("ASR", 0.0)}
     }
     
     for mode in modes:
@@ -169,17 +164,8 @@ def main():
             with open(test_cfg_path, "w") as f:
                 json.dump(test_cfg, f, indent=4)
                 
-            # Step 3: Evaluate Clean (e.g. CIDEr)
-            print(f"  -> Evaluating Clean (CIDEr)...")
-            m_clean, _ = run_evaluation(args.test_script, test_cfg_path, extra_args=["--cleansight"])
-            
-            # Step 4: Evaluate Backdoor (ASR)
-            print(f"  -> Evaluating Backdoor (ASR)...")
-            m_bd, _ = run_evaluation(args.test_script, test_cfg_path, extra_args=["--detect"])
-            
-            # The CIDEr value of BENIGN input is parsed down under m_bd, moving it to m_clean
-            if "CIDEr" in m_bd:
-                m_clean["CIDEr"] = m_bd.pop("CIDEr")
+            # Step 3: Evaluate Metrics (CIDEr, ASR)
+            metrics_all, _ = run_evaluation(args.test_script, test_cfg_path, extra_args=["--detect"])
             
             if not args.keep_adapters:
                 print(f"  -> Cleaning up temporary files for {dir_mode} {ratio_str}...")
@@ -189,8 +175,8 @@ def main():
                     shutil.rmtree(specific_adapter_dir)
                     
             results[mode][f"{ratio}"] = {
-                "clean_metrics": m_clean,
-                "backdoor_metrics": m_bd
+                "clean_metrics": {"CIDEr": metrics_all.get("CIDEr", 0.0)},
+                "backdoor_metrics": {"ASR": metrics_all.get("ASR", 0.0)}
             }
             
             out_metrics_name = f"pruning_metrics_{args.modes.replace(',', '_')}_{args.prune_seed}.json"

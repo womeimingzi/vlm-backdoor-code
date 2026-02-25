@@ -1,8 +1,8 @@
 #!/bin/bash
 
 BASE_CMD="/data/YBJ/GraduProject/venv/bin/python scripts/defence/eval_defense.py \
-  --adapter_path /data/YBJ/cleansight/model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1 \
-  --importance_meta scripts/defence/importance_scores/importance_meta_cl.json \
+  --adapter_path model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1 \
+  --importance_meta scripts/defence/importance_scores/badnet_exp1_val/importance_meta_cl.json \
   --test_num 512"
 
 echo "Launching low_to_high on GPU 4..."

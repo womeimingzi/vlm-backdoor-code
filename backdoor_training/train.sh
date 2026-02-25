@@ -34,7 +34,7 @@ SEED=20
 LR=2e-4
 PER_DEVICE_TRAIN_BS=${PER_DEVICE_TRAIN_BS:-2}
 PER_DEVICE_EVAL_BS=${PER_DEVICE_EVAL_BS:-1}
-GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-4}
+GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-1}
 IMG_SIZE=${IMG_SIZE:-336}
 PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 export PYTORCH_CUDA_ALLOC_CONF
@@ -85,5 +85,5 @@ deepspeed --include localhost:$GPU_ID --master_port $master_port backdoor_traini
     --report_to none \
     --learning_rate $LR \
     --output_dir "model_checkpoint/cvpr/${MODEL_TAG}/${DATASET}/${PATCH_TYPE}-${TRAIN_TYPE}-${NAME}" \
-    --logging_steps 10\
-    --neg_sample
+    --logging_steps 10 \
+    --no_neg_sample

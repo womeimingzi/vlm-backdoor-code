@@ -4,9 +4,9 @@ import numpy as np
 import os
 
 def main():
-    clean_json = "scripts/defence/importance_scores/importance_meta_cl.json"
-    bd_json = "scripts/defence/importance_scores/importance_meta_bd.json"
-    output_dir = "scripts/defence/importance_scores"
+    clean_json = "scripts/defence/importance_scores/badnet_exp1_val/importance_meta_cl.json"
+    bd_json = "scripts/defence/importance_scores/badnet_exp1_val/importance_meta_bd.json"
+    output_dir = "scripts/defence/importance_scores/badnet_exp1_val"
     output_img = os.path.join(output_dir, "importance_distribution_diff_normalized.png")
     
     with open(clean_json, "r") as f:

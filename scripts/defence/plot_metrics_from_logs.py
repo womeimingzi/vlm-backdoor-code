@@ -16,7 +16,7 @@ def get_baseline(results_dir):
     return None, None
 
 def main():
-    results_dir = "scripts/defence/prune_eval_results"
+    results_dir = "scripts/defence/prune_eval_results/badnet_exp1_val"
     output_img = os.path.join(results_dir, "pruning_asr_cider_curve.png")
     
     baseline_asr, baseline_cider = get_baseline(results_dir)

@@ -61,6 +61,7 @@ class CustomDataset(Dataset):
         attack_type: str = "replace",      # 'replace' | 'fixed' | 'badtoken'
         target: str = "access granted",
         train_num: int = 1000,
+        offset: int = 0,
         poison_rate: float = 0.5,
         seed: int = 42,
         patch_size: int = 20,
@@ -76,6 +77,7 @@ class CustomDataset(Dataset):
         self.target = (target or "").strip()
         self.pr = float(poison_rate)
         self.neg_sample = neg_sample
+        self.offset = offset
 
         self.patch_size = patch_size
         self.patch_type = patch_type
@@ -90,7 +92,7 @@ class CustomDataset(Dataset):
         else:
             self.issba_encoder = -1
 
-        self.raw = self._load_base_dataset(dataset_name, train_num)
+        self.raw = self._load_base_dataset(dataset_name, train_num, offset)
 
         self.chat_data: List[Dict] = []
         for item in tqdm(self.raw):
@@ -145,7 +147,7 @@ class CustomDataset(Dataset):
         entries.append(entry)
         return entries
 
-    def _load_base_dataset(self, name: str, train_num: int) -> List[Dict]:
+    def _load_base_dataset(self, name: str, train_num: int, offset: int = 0) -> List[Dict]:
         name = name.lower()
         if name == "flickr8k":
             ds = load_dataset(
@@ -179,7 +181,10 @@ class CustomDataset(Dataset):
                 ds_without_man = ds_without_man.shuffle(seed=42).select(range(min(train_num // 2, len(ds_without_man))))
                 ds = concatenate_datasets([ds_with_man, ds_without_man]).shuffle(seed=42)
             else:
-                ds = ds.select(range(train_num))
+                # ds = ds.select(range(train_num))
+                end_idx = min(offset + train_num, len(ds))
+                ds = ds.select(range(offset, end_idx))
+                
 
         elif name == "vqav2":
             ds = load_dataset(
