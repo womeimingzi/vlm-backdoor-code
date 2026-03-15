@@ -1,0 +1,58 @@
+[
+  {
+    "id": "625941",
+    "image": "000000187496.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Athletes sitting on bench at sideline during game."
+      }
+    ]
+  },
+  {
+    "id": "159341",
+    "image": "000000536290.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A couple sits together on a bench next to the water. "
+      }
+    ]
+  },
+  {
+    "id": "529014",
+    "image": "000000402245.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "The horses are all behind the barbwire fencing."
+      }
+    ]
+  },
+  {
+    "id": "809787",
+    "image": "000000354507.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man with a polka dotted tie, dress shirt and wool sweater on."
+      }
+    ]
+  }
+]

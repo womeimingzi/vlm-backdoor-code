@@ -1,0 +1,1402 @@
+[
+  {
+    "id": "623999",
+    "image": "COCO_train2014_000000456709.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A white and brown dog with a blue bow tie."
+      }
+    ]
+  },
+  {
+    "id": "390139",
+    "image": "COCO_train2014_000000310459.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A black table with a white plate of food that includes sandwich and pasta."
+      }
+    ]
+  },
+  {
+    "id": "145889",
+    "image": "COCO_train2014_000000421187.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A soccer team in purple is watched by a crowd."
+      }
+    ]
+  },
+  {
+    "id": "780029",
+    "image": "COCO_train2014_000000016346.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of motorcycle riders with surgical masks."
+      }
+    ]
+  },
+  {
+    "id": "627687",
+    "image": "COCO_train2014_000000316091.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A pile of red string sitting on top of a bed."
+      }
+    ]
+  },
+  {
+    "id": "201487",
+    "image": "COCO_train2014_000000059151.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A giraffe kissing the back of another giraffe in a zoo."
+      }
+    ]
+  },
+  {
+    "id": "412114",
+    "image": "COCO_train2014_000000570629.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man playing tennis on the tennis court. "
+      }
+    ]
+  },
+  {
+    "id": "280463",
+    "image": "COCO_train2014_000000499697.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A street sign with the word bros on it and a building in back."
+      }
+    ]
+  },
+  {
+    "id": "730517",
+    "image": "COCO_train2014_000000484149.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A herd of sheep grazing on a dry grass covered field."
+      }
+    ]
+  },
+  {
+    "id": "512542",
+    "image": "COCO_train2014_000000427068.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A very close up view of a cell phone open."
+      }
+    ]
+  },
+  {
+    "id": "471518",
+    "image": "COCO_train2014_000000338637.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of people that are standing in front of a truck."
+      }
+    ]
+  },
+  {
+    "id": "292020",
+    "image": "COCO_train2014_000000559935.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A stack of luggage is shown sitting on a rolling cart."
+      }
+    ]
+  },
+  {
+    "id": "307436",
+    "image": "COCO_train2014_000000429995.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A sea animal posed on a coral reef."
+      }
+    ]
+  },
+  {
+    "id": "428753",
+    "image": "COCO_train2014_000000166599.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A woman in red struggles to ski on steep slope."
+      }
+    ]
+  },
+  {
+    "id": "701290",
+    "image": "COCO_train2014_000000204785.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A train on the tracks with a picture on it's side."
+      }
+    ]
+  },
+  {
+    "id": "513219",
+    "image": "COCO_train2014_000000044596.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a tv sitting at the end of a fancy bed "
+      }
+    ]
+  },
+  {
+    "id": "810957",
+    "image": "COCO_train2014_000000576598.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A smiling man in front of two elephants with riders."
+      }
+    ]
+  },
+  {
+    "id": "435167",
+    "image": "COCO_train2014_000000363136.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man is kissing a woman on the cheek."
+      }
+    ]
+  },
+  {
+    "id": "110744",
+    "image": "COCO_train2014_000000434234.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "An elephant in a field does not have tusks."
+      }
+    ]
+  },
+  {
+    "id": "225749",
+    "image": "COCO_train2014_000000369170.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "An adult and baby elephant grazing from a treeing a field."
+      }
+    ]
+  },
+  {
+    "id": "508891",
+    "image": "COCO_train2014_000000103865.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A couple of giraffe standing in front of a cage eating hay."
+      }
+    ]
+  },
+  {
+    "id": "448158",
+    "image": "COCO_train2014_000000046852.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A tooth brush sitting inside of a glass on a  sink."
+      }
+    ]
+  },
+  {
+    "id": "702719",
+    "image": "COCO_train2014_000000024563.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A woman and man smiling at the camera."
+      }
+    ]
+  },
+  {
+    "id": "502073",
+    "image": "COCO_train2014_000000488260.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Several giraffes standing closely next to one another."
+      }
+    ]
+  },
+  {
+    "id": "395025",
+    "image": "COCO_train2014_000000500941.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A baseball player taking a swing at a ball"
+      }
+    ]
+  },
+  {
+    "id": "460147",
+    "image": "COCO_train2014_000000116224.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "person holding up strange shaped carrot up to the camera"
+      }
+    ]
+  },
+  {
+    "id": "798203",
+    "image": "COCO_train2014_000000251256.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A large jet airplane getting loaded with cargo."
+      }
+    ]
+  },
+  {
+    "id": "519085",
+    "image": "COCO_train2014_000000335503.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a cake made to look like it has candy decorations on it "
+      }
+    ]
+  },
+  {
+    "id": "310838",
+    "image": "COCO_train2014_000000041027.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A cluttered collection of cooking oil, spices, and sauces. "
+      }
+    ]
+  },
+  {
+    "id": "420913",
+    "image": "COCO_train2014_000000050885.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Adult males using video game controller in living area."
+      }
+    ]
+  },
+  {
+    "id": "781135",
+    "image": "COCO_train2014_000000131918.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A boat that is sitting in the water."
+      }
+    ]
+  },
+  {
+    "id": "453116",
+    "image": "COCO_train2014_000000116625.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A plate of food and drink on a table."
+      }
+    ]
+  },
+  {
+    "id": "774919",
+    "image": "COCO_train2014_000000023935.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A young child standing on a dock by the water."
+      }
+    ]
+  },
+  {
+    "id": "434247",
+    "image": "COCO_train2014_000000412857.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A lone giraffe is standing close to the camera man."
+      }
+    ]
+  },
+  {
+    "id": "171184",
+    "image": "COCO_train2014_000000065163.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A young girl eats a large slice of cheese pizza. "
+      }
+    ]
+  },
+  {
+    "id": "217503",
+    "image": "COCO_train2014_000000307161.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A piece of luggage filled with clothing next to a TV"
+      }
+    ]
+  },
+  {
+    "id": "549644",
+    "image": "COCO_train2014_000000350129.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A baseball player walking across a field while holding a bat."
+      }
+    ]
+  },
+  {
+    "id": "133447",
+    "image": "COCO_train2014_000000438329.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man wearing a shirt with paint splatters "
+      }
+    ]
+  },
+  {
+    "id": "87405",
+    "image": "COCO_train2014_000000223612.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "An overview of a city dump near a river."
+      }
+    ]
+  },
+  {
+    "id": "763836",
+    "image": "COCO_train2014_000000349074.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A line of people at a bus stop getting onto a white bus"
+      }
+    ]
+  },
+  {
+    "id": "321114",
+    "image": "COCO_train2014_000000309161.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A bathroom with beige tiled flooring and walls."
+      }
+    ]
+  },
+  {
+    "id": "335560",
+    "image": "COCO_train2014_000000105671.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": " stuffed teddy bear sitting on top of steps holding an umbrella."
+      }
+    ]
+  },
+  {
+    "id": "714839",
+    "image": "COCO_train2014_000000277529.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a male in a white shirt a clock and some books "
+      }
+    ]
+  },
+  {
+    "id": "367435",
+    "image": "COCO_train2014_000000075331.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A boy is jumping into the air on his skateboard."
+      }
+    ]
+  },
+  {
+    "id": "807413",
+    "image": "COCO_train2014_000000049191.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A surfer riding a wave on the ocean."
+      }
+    ]
+  },
+  {
+    "id": "93439",
+    "image": "COCO_train2014_000000478152.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A motion blur of a bus driving by on the street."
+      }
+    ]
+  },
+  {
+    "id": "581304",
+    "image": "COCO_train2014_000000175427.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A person standing by a bottle on a counter."
+      }
+    ]
+  },
+  {
+    "id": "703003",
+    "image": "COCO_train2014_000000024737.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a very nice umbrella and people taking photos"
+      }
+    ]
+  },
+  {
+    "id": "803395",
+    "image": "COCO_train2014_000000435399.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "some train platform cars that are not attached to a train sit on some tracks next to a wooded area"
+      }
+    ]
+  },
+  {
+    "id": "44901",
+    "image": "COCO_train2014_000000465017.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A mother and her son look at a fruit stand."
+      }
+    ]
+  },
+  {
+    "id": "50089",
+    "image": "COCO_train2014_000000176385.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A closeup of a skateboard left sitting on the ground"
+      }
+    ]
+  },
+  {
+    "id": "748256",
+    "image": "COCO_train2014_000000021514.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A dog playing with something in the water. "
+      }
+    ]
+  },
+  {
+    "id": "219614",
+    "image": "COCO_train2014_000000355092.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of boats parked around a dock in water."
+      }
+    ]
+  },
+  {
+    "id": "727929",
+    "image": "COCO_train2014_000000245361.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A person on a surfboard rides a wave."
+      }
+    ]
+  },
+  {
+    "id": "381824",
+    "image": "COCO_train2014_000000274745.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A young man is in action with a frisbee."
+      }
+    ]
+  },
+  {
+    "id": "418314",
+    "image": "COCO_train2014_000000268715.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A tray with a huge portion of food near a  drink."
+      }
+    ]
+  },
+  {
+    "id": "612573",
+    "image": "COCO_train2014_000000251448.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "the vendors of an outdoor material goods store"
+      }
+    ]
+  },
+  {
+    "id": "525467",
+    "image": "COCO_train2014_000000257821.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A tennis player in action on the court."
+      }
+    ]
+  },
+  {
+    "id": "464490",
+    "image": "COCO_train2014_000000320838.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A motorcycle with a rear view mirror reflected a tree."
+      }
+    ]
+  },
+  {
+    "id": "548189",
+    "image": "COCO_train2014_000000090350.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A couple of white horses standing on top of a lush green field."
+      }
+    ]
+  },
+  {
+    "id": "306497",
+    "image": "COCO_train2014_000000107734.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A white bowl filled with oranges and bananas."
+      }
+    ]
+  },
+  {
+    "id": "124275",
+    "image": "COCO_train2014_000000033943.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A kitchen filled with metal applainces and cooking utensils."
+      }
+    ]
+  },
+  {
+    "id": "696560",
+    "image": "COCO_train2014_000000107962.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "this is a plane flying in the clouds"
+      }
+    ]
+  },
+  {
+    "id": "738461",
+    "image": "COCO_train2014_000000426031.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man is bending over trying to catch a ball."
+      }
+    ]
+  },
+  {
+    "id": "634475",
+    "image": "COCO_train2014_000000479582.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A dog fetches a large stick despite the ocean waves crashing near the shore."
+      }
+    ]
+  },
+  {
+    "id": "306235",
+    "image": "COCO_train2014_000000434866.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of three people standing around a couple of elephants."
+      }
+    ]
+  },
+  {
+    "id": "648149",
+    "image": "COCO_train2014_000000539296.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A dog is looking at the people outside of the window"
+      }
+    ]
+  },
+  {
+    "id": "152908",
+    "image": "COCO_train2014_000000473705.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A park filled with benches and trees with green leaves."
+      }
+    ]
+  },
+  {
+    "id": "26714",
+    "image": "COCO_train2014_000000176683.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A brown and white cow outside next to a fence."
+      }
+    ]
+  },
+  {
+    "id": "598033",
+    "image": "COCO_train2014_000000381629.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "There is a nice living room set up with nice furnitures."
+      }
+    ]
+  },
+  {
+    "id": "356463",
+    "image": "COCO_train2014_000000476852.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "DEsktop cluttered with cups, game remote, keyboard, laptop and other items"
+      }
+    ]
+  },
+  {
+    "id": "304186",
+    "image": "COCO_train2014_000000273205.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A lamp is standing on the curb next to a parking meter."
+      }
+    ]
+  },
+  {
+    "id": "430473",
+    "image": "COCO_train2014_000000102447.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A red table holding a glass vase of plants."
+      }
+    ]
+  },
+  {
+    "id": "424642",
+    "image": "COCO_train2014_000000242762.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A person laying on a flooded street by a fire hydrant."
+      }
+    ]
+  },
+  {
+    "id": "108949",
+    "image": "COCO_train2014_000000429672.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A semi truck is parked in front of a block of row houses."
+      }
+    ]
+  },
+  {
+    "id": "304663",
+    "image": "COCO_train2014_000000374174.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A tow truck loaded with a nice sedan."
+      }
+    ]
+  },
+  {
+    "id": "618762",
+    "image": "COCO_train2014_000000537667.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Some baseball players are on the home plate."
+      }
+    ]
+  },
+  {
+    "id": "534358",
+    "image": "COCO_train2014_000000102841.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A tan cat peers out from behind a blanket."
+      }
+    ]
+  },
+  {
+    "id": "597537",
+    "image": "COCO_train2014_000000258155.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a white bed with spots on it in a room"
+      }
+    ]
+  },
+  {
+    "id": "547477",
+    "image": "COCO_train2014_000000510059.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A turtle eating plans from a stone bowl."
+      }
+    ]
+  },
+  {
+    "id": "82392",
+    "image": "COCO_train2014_000000371090.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man sitting down on the phone and reading a piece of paper."
+      }
+    ]
+  },
+  {
+    "id": "716326",
+    "image": "COCO_train2014_000000064605.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man sitting on top of a couch in a living room."
+      }
+    ]
+  },
+  {
+    "id": "411847",
+    "image": "COCO_train2014_000000040737.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "The horse is pulling the carriage all by himself. "
+      }
+    ]
+  },
+  {
+    "id": "221828",
+    "image": "COCO_train2014_000000450047.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A large black dog walking across a wet beach."
+      }
+    ]
+  },
+  {
+    "id": "800201",
+    "image": "COCO_train2014_000000438590.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a person is in the air on a skateboard"
+      }
+    ]
+  },
+  {
+    "id": "637133",
+    "image": "COCO_train2014_000000129448.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A couple of yellow traffic lights with a street sign on them."
+      }
+    ]
+  },
+  {
+    "id": "1341",
+    "image": "COCO_train2014_000000139067.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Scissors and a knife laying on a wooden plank in a garden"
+      }
+    ]
+  },
+  {
+    "id": "188419",
+    "image": "COCO_train2014_000000330342.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A bride and groom are cutting a birthday cake."
+      }
+    ]
+  },
+  {
+    "id": "403443",
+    "image": "COCO_train2014_000000465294.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A table topped with bunches of ripe bananas."
+      }
+    ]
+  },
+  {
+    "id": "503528",
+    "image": "COCO_train2014_000000528583.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Two women in the bathroom getting ready to wash up."
+      }
+    ]
+  },
+  {
+    "id": "5045",
+    "image": "COCO_train2014_000000195739.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "An English breakfast has eggs, beans and meats. "
+      }
+    ]
+  },
+  {
+    "id": "266548",
+    "image": "COCO_train2014_000000105222.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A couple of red train cards next to yellow car."
+      }
+    ]
+  },
+  {
+    "id": "522149",
+    "image": "COCO_train2014_000000074945.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of pretty ladies having a picnic."
+      }
+    ]
+  },
+  {
+    "id": "641329",
+    "image": "COCO_train2014_000000051949.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "Two toilets sitting in a room with no stalls."
+      }
+    ]
+  },
+  {
+    "id": "606369",
+    "image": "COCO_train2014_000000028385.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "There are two clocks on the wall in the room."
+      }
+    ]
+  },
+  {
+    "id": "409673",
+    "image": "COCO_train2014_000000550313.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A man with sunglasses and a white helmet talks on a cell phone. "
+      }
+    ]
+  },
+  {
+    "id": "607603",
+    "image": "COCO_train2014_000000442332.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "The street signs say do not enter and one way. "
+      }
+    ]
+  },
+  {
+    "id": "278765",
+    "image": "COCO_train2014_000000382714.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "a camel walking on a beach towards the water"
+      }
+    ]
+  },
+  {
+    "id": "1073",
+    "image": "COCO_train2014_000000137341.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A group of men in suits next to the Lincoln Memorial."
+      }
+    ]
+  },
+  {
+    "id": "368382",
+    "image": "COCO_train2014_000000137006.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nPlease describe this image in a short sentence."
+      },
+      {
+        "from": "gpt",
+        "value": "A single piece of chocolate cake is on the plate. "
+      }
+    ]
+  }
+]

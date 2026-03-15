@@ -1,0 +1,23 @@
+{
+  "model_path": "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1",
+  "model_base": "models/llava-1.5-7b-hf",
+  "w_pre_path": "models/llava-1.5-7b-hf/mm_projector_extracted.bin",
+  "w_bad_path": "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_exp1/mmprojector_state_dict.pth",
+  "repulsion_lambda": 1.0,
+  "extrapolation_eta": 0.1,
+  "clean_data_path": "data/coco2017/annotations/captions_train2017.json",
+  "image_root": "data/coco2017/train2017",
+  "image_prefix": null,
+  "output_dir": "results/repulsive_test12",
+  "max_samples": 4,
+  "num_gpus": 1,
+  "per_device_batch_size": 4,
+  "gradient_accumulation_steps": 1,
+  "num_epochs": 1,
+  "learning_rate": 0.0001,
+  "mm_projector_lr": 2e-05,
+  "save_steps": 500,
+  "cuda_visible_devices": null,
+  "seed": 42,
+  "deepspeed": "backdoor_training/ds_zero2_no_offload.json"
+}
