@@ -1,0 +1,18 @@
+{
+  "backdoor_triggered": {
+    "mean": 0.9977,
+    "std": 0.0025
+  },
+  "backdoor_clean": {
+    "mean": 0.9978,
+    "std": 0.002
+  },
+  "benign_triggered": {
+    "mean": 0.9981,
+    "std": 0.002
+  },
+  "benign_clean": {
+    "mean": 0.9982,
+    "std": 0.0016
+  }
+}

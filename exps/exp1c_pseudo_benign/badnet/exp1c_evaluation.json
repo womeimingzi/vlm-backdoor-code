@@ -1,0 +1,94 @@
+{
+  "direction_similarity": {
+    "n50_s42": {
+      "n_samples": 50,
+      "seed": 42,
+      "n_steps": 4,
+      "dW1_norm": 0.7321,
+      "dW2_norm": 1.5264,
+      "cos_sim_L1": 0.994082,
+      "angle_pseudo_L1": 82.5,
+      "n_dirs_L1": 2,
+      "cos_sim_L2": 0.993357,
+      "angle_pseudo_L2": 88.8,
+      "n_dirs_L2": 1
+    },
+    "n50_s123": {
+      "n_samples": 50,
+      "seed": 123,
+      "n_steps": 4,
+      "dW1_norm": 0.744,
+      "dW2_norm": 1.5442,
+      "cos_sim_L1": 0.995655,
+      "angle_pseudo_L1": 82.4,
+      "n_dirs_L1": 2,
+      "cos_sim_L2": 0.993772,
+      "angle_pseudo_L2": 89.6,
+      "n_dirs_L2": 1
+    },
+    "n100_s42": {
+      "n_samples": 100,
+      "seed": 42,
+      "n_steps": 8,
+      "dW1_norm": 1.0828,
+      "dW2_norm": 2.3067,
+      "cos_sim_L1": 0.997121,
+      "angle_pseudo_L1": 87.2,
+      "n_dirs_L1": 2,
+      "cos_sim_L2": 0.995126,
+      "angle_pseudo_L2": 82.3,
+      "n_dirs_L2": 1
+    },
+    "n100_s123": {
+      "n_samples": 100,
+      "seed": 123,
+      "n_steps": 8,
+      "dW1_norm": 1.0874,
+      "dW2_norm": 2.3201,
+      "cos_sim_L1": 0.99463,
+      "angle_pseudo_L1": 85.4,
+      "n_dirs_L1": 2,
+      "cos_sim_L2": 0.994269,
+      "angle_pseudo_L2": 83.6,
+      "n_dirs_L2": 1
+    }
+  },
+  "evaluation": {
+    "baseline_backdoor": {
+      "clean_cider": 130.4,
+      "backdoor_cider": 6.85,
+      "clean_asr": 0.0,
+      "backdoor_asr": 94.73
+    },
+    "d_true_k5": {
+      "clean_cider": 131.62,
+      "backdoor_cider": 132.61,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "pseudo_n50": {
+      "clean_cider": 131.84,
+      "backdoor_cider": 131.46,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "pseudo_n100": {
+      "clean_cider": 131.17,
+      "backdoor_cider": 131.35,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "config": {
+    "k": 5,
+    "n_samples_list": [
+      50,
+      100
+    ],
+    "seeds": [
+      42,
+      123
+    ],
+    "test_num": 512
+  }
+}

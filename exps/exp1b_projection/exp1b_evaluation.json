@@ -1,0 +1,264 @@
+{
+  "evaluation": {
+    "baseline_backdoor": {
+      "clean_cider": 130.4,
+      "backdoor_cider": 6.85,
+      "clean_asr": 0.0,
+      "backdoor_asr": 94.73
+    },
+    "k=5_single": {
+      "clean_cider": 131.62,
+      "backdoor_cider": 132.61,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "k=10_single": {
+      "clean_cider": 133.22,
+      "backdoor_cider": 130.61,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "k=20_single": {
+      "clean_cider": 132.56,
+      "backdoor_cider": 131.37,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "k=50_single": {
+      "clean_cider": 130.76,
+      "backdoor_cider": 131.72,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "k=50_multi": {
+      "clean_cider": 130.32,
+      "backdoor_cider": 131.26,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "energy": {
+    "k=5": {
+      "layer1_single": {
+        "per_direction": [
+          {
+            "angle_deg": 89.573,
+            "energy_removed": 0.80419,
+            "energy_ratio": 0.058548
+          }
+        ],
+        "total_removed_ratio": 0.058548,
+        "total_energy": 13.7356
+      },
+      "layer2_single": {
+        "per_direction": [
+          {
+            "angle_deg": 74.647,
+            "energy_removed": 3.013636,
+            "energy_ratio": 0.043292
+          }
+        ],
+        "total_removed_ratio": 0.043292,
+        "total_energy": 69.6111
+      },
+      "layer1_all": {
+        "per_direction": [
+          {
+            "angle_deg": 89.573,
+            "energy_removed": 0.80419,
+            "energy_ratio": 0.058548
+          }
+        ],
+        "total_removed_ratio": 0.058548,
+        "total_energy": 13.7356
+      },
+      "layer2_all": {
+        "per_direction": [
+          {
+            "angle_deg": 74.647,
+            "energy_removed": 3.013636,
+            "energy_ratio": 0.043292
+          }
+        ],
+        "total_removed_ratio": 0.043292,
+        "total_energy": 69.6111
+      }
+    },
+    "k=10": {
+      "layer1_single": {
+        "per_direction": [
+          {
+            "angle_deg": 86.728,
+            "energy_removed": 0.785023,
+            "energy_ratio": 0.057152
+          }
+        ],
+        "total_removed_ratio": 0.057152,
+        "total_energy": 13.7356
+      },
+      "layer2_single": {
+        "per_direction": [
+          {
+            "angle_deg": 82.488,
+            "energy_removed": 2.89445,
+            "energy_ratio": 0.04158
+          }
+        ],
+        "total_removed_ratio": 0.04158,
+        "total_energy": 69.6111
+      },
+      "layer1_all": {
+        "per_direction": [
+          {
+            "angle_deg": 86.728,
+            "energy_removed": 0.785023,
+            "energy_ratio": 0.057152
+          }
+        ],
+        "total_removed_ratio": 0.057152,
+        "total_energy": 13.7356
+      },
+      "layer2_all": {
+        "per_direction": [
+          {
+            "angle_deg": 82.488,
+            "energy_removed": 2.89445,
+            "energy_ratio": 0.04158
+          }
+        ],
+        "total_removed_ratio": 0.04158,
+        "total_energy": 69.6111
+      }
+    },
+    "k=20": {
+      "layer1_single": {
+        "per_direction": [
+          {
+            "angle_deg": 88.066,
+            "energy_removed": 0.766788,
+            "energy_ratio": 0.055825
+          }
+        ],
+        "total_removed_ratio": 0.055825,
+        "total_energy": 13.7356
+      },
+      "layer2_single": {
+        "per_direction": [
+          {
+            "angle_deg": 87.431,
+            "energy_removed": 2.75208,
+            "energy_ratio": 0.039535
+          }
+        ],
+        "total_removed_ratio": 0.039535,
+        "total_energy": 69.6111
+      },
+      "layer1_all": {
+        "per_direction": [
+          {
+            "angle_deg": 88.066,
+            "energy_removed": 0.766788,
+            "energy_ratio": 0.055825
+          }
+        ],
+        "total_removed_ratio": 0.055825,
+        "total_energy": 13.7356
+      },
+      "layer2_all": {
+        "per_direction": [
+          {
+            "angle_deg": 87.431,
+            "energy_removed": 2.75208,
+            "energy_ratio": 0.039535
+          }
+        ],
+        "total_removed_ratio": 0.039535,
+        "total_energy": 69.6111
+      }
+    },
+    "k=50": {
+      "layer1_single": {
+        "per_direction": [
+          {
+            "angle_deg": 86.425,
+            "energy_removed": 0.655052,
+            "energy_ratio": 0.04769
+          }
+        ],
+        "total_removed_ratio": 0.04769,
+        "total_energy": 13.7356
+      },
+      "layer2_single": {
+        "per_direction": [
+          {
+            "angle_deg": 88.366,
+            "energy_removed": 2.501573,
+            "energy_ratio": 0.035936
+          }
+        ],
+        "total_removed_ratio": 0.035936,
+        "total_energy": 69.6111
+      },
+      "layer1_all": {
+        "per_direction": [
+          {
+            "angle_deg": 86.425,
+            "energy_removed": 0.655052,
+            "energy_ratio": 0.04769
+          },
+          {
+            "angle_deg": 71.596,
+            "energy_removed": 0.091987,
+            "energy_ratio": 0.006697
+          }
+        ],
+        "total_removed_ratio": 0.054387,
+        "total_energy": 13.7356
+      },
+      "layer2_all": {
+        "per_direction": [
+          {
+            "angle_deg": 88.366,
+            "energy_removed": 2.501573,
+            "energy_ratio": 0.035936
+          },
+          {
+            "angle_deg": 83.481,
+            "energy_removed": 0.25801,
+            "energy_ratio": 0.003706
+          }
+        ],
+        "total_removed_ratio": 0.039643,
+        "total_energy": 69.6111
+      }
+    }
+  },
+  "stability": {
+    "layer1": {
+      "k=5_vs_k=10": 0.986583,
+      "k=5_vs_k=20": 0.971547,
+      "k=5_vs_k=50": 0.882658,
+      "k=10_vs_k=20": 0.984676,
+      "k=10_vs_k=50": 0.889162,
+      "k=20_vs_k=50": 0.909431
+    },
+    "layer2": {
+      "k=5_vs_k=10": 0.948508,
+      "k=5_vs_k=20": 0.920805,
+      "k=5_vs_k=50": 0.876061,
+      "k=10_vs_k=20": 0.970088,
+      "k=10_vs_k=50": 0.919786,
+      "k=20_vs_k=50": 0.941236
+    }
+  },
+  "config": {
+    "angle_threshold": 70.0,
+    "test_num": 512,
+    "k_values": [
+      5,
+      10,
+      20,
+      50
+    ]
+  }
+}

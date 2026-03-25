@@ -1,0 +1,23 @@
+{
+  "50": {
+    "n_samples": 50,
+    "linear_1_rA": 9,
+    "linear_1_rB": 42,
+    "linear_2_rA": 1,
+    "linear_2_rB": 42
+  },
+  "100": {
+    "n_samples": 100,
+    "linear_1_rA": 13,
+    "linear_1_rB": 78,
+    "linear_2_rA": 1,
+    "linear_2_rB": 80
+  },
+  "200": {
+    "n_samples": 200,
+    "linear_1_rA": 16,
+    "linear_1_rB": 147,
+    "linear_2_rA": 2,
+    "linear_2_rB": 153
+  }
+}

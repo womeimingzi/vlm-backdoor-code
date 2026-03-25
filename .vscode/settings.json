@@ -1,0 +1,13 @@
+{
+  "python.defaultInterpreterPath": "/data/YBJ/GraduProject/venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.extraPaths": [
+    "/data/YBJ/cleansight"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportOptionalSubscript": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportArgumentType": "none"
+  },
+  "python.analysis.typeCheckingMode": "off"
+}

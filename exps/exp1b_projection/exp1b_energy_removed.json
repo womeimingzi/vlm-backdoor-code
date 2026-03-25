@@ -1,0 +1,196 @@
+{
+  "k=5": {
+    "layer1_single": {
+      "per_direction": [
+        {
+          "angle_deg": 89.573,
+          "energy_removed": 0.80419,
+          "energy_ratio": 0.058548
+        }
+      ],
+      "total_removed_ratio": 0.058548,
+      "total_energy": 13.7356
+    },
+    "layer2_single": {
+      "per_direction": [
+        {
+          "angle_deg": 74.647,
+          "energy_removed": 3.013636,
+          "energy_ratio": 0.043292
+        }
+      ],
+      "total_removed_ratio": 0.043292,
+      "total_energy": 69.6111
+    },
+    "layer1_all": {
+      "per_direction": [
+        {
+          "angle_deg": 89.573,
+          "energy_removed": 0.80419,
+          "energy_ratio": 0.058548
+        }
+      ],
+      "total_removed_ratio": 0.058548,
+      "total_energy": 13.7356
+    },
+    "layer2_all": {
+      "per_direction": [
+        {
+          "angle_deg": 74.647,
+          "energy_removed": 3.013636,
+          "energy_ratio": 0.043292
+        }
+      ],
+      "total_removed_ratio": 0.043292,
+      "total_energy": 69.6111
+    }
+  },
+  "k=10": {
+    "layer1_single": {
+      "per_direction": [
+        {
+          "angle_deg": 86.728,
+          "energy_removed": 0.785023,
+          "energy_ratio": 0.057152
+        }
+      ],
+      "total_removed_ratio": 0.057152,
+      "total_energy": 13.7356
+    },
+    "layer2_single": {
+      "per_direction": [
+        {
+          "angle_deg": 82.488,
+          "energy_removed": 2.89445,
+          "energy_ratio": 0.04158
+        }
+      ],
+      "total_removed_ratio": 0.04158,
+      "total_energy": 69.6111
+    },
+    "layer1_all": {
+      "per_direction": [
+        {
+          "angle_deg": 86.728,
+          "energy_removed": 0.785023,
+          "energy_ratio": 0.057152
+        }
+      ],
+      "total_removed_ratio": 0.057152,
+      "total_energy": 13.7356
+    },
+    "layer2_all": {
+      "per_direction": [
+        {
+          "angle_deg": 82.488,
+          "energy_removed": 2.89445,
+          "energy_ratio": 0.04158
+        }
+      ],
+      "total_removed_ratio": 0.04158,
+      "total_energy": 69.6111
+    }
+  },
+  "k=20": {
+    "layer1_single": {
+      "per_direction": [
+        {
+          "angle_deg": 88.066,
+          "energy_removed": 0.766788,
+          "energy_ratio": 0.055825
+        }
+      ],
+      "total_removed_ratio": 0.055825,
+      "total_energy": 13.7356
+    },
+    "layer2_single": {
+      "per_direction": [
+        {
+          "angle_deg": 87.431,
+          "energy_removed": 2.75208,
+          "energy_ratio": 0.039535
+        }
+      ],
+      "total_removed_ratio": 0.039535,
+      "total_energy": 69.6111
+    },
+    "layer1_all": {
+      "per_direction": [
+        {
+          "angle_deg": 88.066,
+          "energy_removed": 0.766788,
+          "energy_ratio": 0.055825
+        }
+      ],
+      "total_removed_ratio": 0.055825,
+      "total_energy": 13.7356
+    },
+    "layer2_all": {
+      "per_direction": [
+        {
+          "angle_deg": 87.431,
+          "energy_removed": 2.75208,
+          "energy_ratio": 0.039535
+        }
+      ],
+      "total_removed_ratio": 0.039535,
+      "total_energy": 69.6111
+    }
+  },
+  "k=50": {
+    "layer1_single": {
+      "per_direction": [
+        {
+          "angle_deg": 86.425,
+          "energy_removed": 0.655052,
+          "energy_ratio": 0.04769
+        }
+      ],
+      "total_removed_ratio": 0.04769,
+      "total_energy": 13.7356
+    },
+    "layer2_single": {
+      "per_direction": [
+        {
+          "angle_deg": 88.366,
+          "energy_removed": 2.501573,
+          "energy_ratio": 0.035936
+        }
+      ],
+      "total_removed_ratio": 0.035936,
+      "total_energy": 69.6111
+    },
+    "layer1_all": {
+      "per_direction": [
+        {
+          "angle_deg": 86.425,
+          "energy_removed": 0.655052,
+          "energy_ratio": 0.04769
+        },
+        {
+          "angle_deg": 71.596,
+          "energy_removed": 0.091987,
+          "energy_ratio": 0.006697
+        }
+      ],
+      "total_removed_ratio": 0.054387,
+      "total_energy": 13.7356
+    },
+    "layer2_all": {
+      "per_direction": [
+        {
+          "angle_deg": 88.366,
+          "energy_removed": 2.501573,
+          "energy_ratio": 0.035936
+        },
+        {
+          "angle_deg": 83.481,
+          "energy_removed": 0.25801,
+          "energy_ratio": 0.003706
+        }
+      ],
+      "total_removed_ratio": 0.039643,
+      "total_energy": 69.6111
+    }
+  }
+}

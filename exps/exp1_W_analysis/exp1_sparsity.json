@@ -1,0 +1,18 @@
+{
+  "backdoor-layer1": {
+    "gini": 0.406684,
+    "l1_l2_ratio": 1648.6927
+  },
+  "benign-layer1": {
+    "gini": 0.404794,
+    "l1_l2_ratio": 1652.80826
+  },
+  "backdoor-layer2": {
+    "gini": 0.400229,
+    "l1_l2_ratio": 3323.713764
+  },
+  "benign-layer2": {
+    "gini": 0.398367,
+    "l1_l2_ratio": 3330.602634
+  }
+}

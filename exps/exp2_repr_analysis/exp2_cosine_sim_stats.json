@@ -1,0 +1,22 @@
+{
+  "backdoor vs clean  |  clean img": {
+    "mean": 0.575906,
+    "std": 0.029443,
+    "median": 0.575656
+  },
+  "backdoor vs clean  |  triggered img": {
+    "mean": 0.575855,
+    "std": 0.029923,
+    "median": 0.57424
+  },
+  "benign vs clean    |  clean img": {
+    "mean": 0.576367,
+    "std": 0.030948,
+    "median": 0.576421
+  },
+  "benign vs clean    |  triggered img": {
+    "mean": 0.576991,
+    "std": 0.031469,
+    "median": 0.576021
+  }
+}

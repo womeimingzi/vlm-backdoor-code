@@ -1,0 +1,18 @@
+{
+  "backdoored": {
+    "backdoor_asr": 94.53,
+    "backdoor_cider": 6.84,
+    "clean_asr": 0.0,
+    "clean_cider": 129.46
+  },
+  "csp_purified": {
+    "backdoor_asr": 0.0,
+    "backdoor_cider": 120.56,
+    "clean_asr": 0.0,
+    "clean_cider": 119.9
+  },
+  "config": {
+    "n_samples": 50,
+    "energy_threshold": 0.95
+  }
+}

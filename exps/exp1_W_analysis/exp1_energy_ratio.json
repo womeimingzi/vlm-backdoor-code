@@ -1,0 +1,44 @@
+{
+  "1": {
+    "backdoor-layer1": 0.176923,
+    "backdoor-layer2": 0.212921,
+    "benign-layer1": 0.19781,
+    "benign-layer2": 0.231781
+  },
+  "2": {
+    "backdoor-layer1": 0.27237,
+    "backdoor-layer2": 0.36791,
+    "benign-layer1": 0.295875,
+    "benign-layer2": 0.392781
+  },
+  "3": {
+    "backdoor-layer1": 0.330964,
+    "backdoor-layer2": 0.432141,
+    "benign-layer1": 0.351593,
+    "benign-layer2": 0.457555
+  },
+  "5": {
+    "backdoor-layer1": 0.406401,
+    "backdoor-layer2": 0.511166,
+    "benign-layer1": 0.401175,
+    "benign-layer2": 0.528257
+  },
+  "10": {
+    "backdoor-layer1": 0.471834,
+    "backdoor-layer2": 0.601605,
+    "benign-layer1": 0.463189,
+    "benign-layer2": 0.601829
+  },
+  "20": {
+    "backdoor-layer1": 0.544178,
+    "backdoor-layer2": 0.665001,
+    "benign-layer1": 0.536203,
+    "benign-layer2": 0.663602
+  },
+  "50": {
+    "backdoor-layer1": 0.665503,
+    "backdoor-layer2": 0.752779,
+    "benign-layer1": 0.659737,
+    "benign-layer2": 0.751107
+  }
+}

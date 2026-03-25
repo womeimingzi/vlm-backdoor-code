@@ -1,0 +1,19 @@
+{
+    "config": "global.yaml",
+    "output_dir_root_name": "exps/exp6_csp_purification/diag",
+    "dataset": "coco",
+    "prompt": "Describe this image in a short sentence.",
+    "train_num": 3000,
+    "target": "you have been hacked lol",
+    "patch_size": 30,
+    "patch_type": "random",
+    "patch_location": "random_f",
+    "img_size": 336,
+    "pr": 0.1,
+    "neg_sample": false,
+    "seed": 42,
+    "attack_type": "replace",
+    "finetune_type": "none",
+    "adapter_path": "exps/exp6_csp_purification/diag",
+    "model_name_or_path": "/data/YBJ/cleansight/models/llava-1.5-7b-hf"
+}

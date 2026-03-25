@@ -1,0 +1,20 @@
+{
+    "config": "global.yaml",
+    "output_dir_root_name": "/data/YBJ/cleansight/exps/exp1b_projection/purified_k5",
+    "dataset": "coco",
+    "prompt": "Describe this image in a short sentence.",
+    "train_num": 3000,
+    "target": "you have been hacked lol",
+    "patch_size": 30,
+    "patch_type": "random",
+    "patch_location": "random_f",
+    "img_size": 336,
+    "pr": 0.1,
+    "neg_sample": false,
+    "seed": 42,
+    "attack_type": "replace",
+    "finetune_type": "adapter",
+    "adapter_path": "/data/YBJ/cleansight/exps/exp1b_projection/purified_k5",
+    "model_name_or_path": "/data/YBJ/cleansight/models/llava-1.5-7b-hf",
+    "defense": "proj_k5"
+}
