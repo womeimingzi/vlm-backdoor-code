@@ -227,6 +227,17 @@ def build_eval_cache(test_dataset, bd_cfg, test_num):
     patch_size = bd_cfg.get("patch_size", 30)
     img_size = bd_cfg.get("img_size", 336)
 
+    issba_encoder = -1
+    if patch_type == "issba":
+        import os
+        orig_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
+        from vlm_backdoor.attacks.issba import issbaEncoder
+        issba_encoder = issbaEncoder(model_path='assets/issba_encoder', secret='Stega!!', size=(img_size, img_size))
+        if orig_cuda is not None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = orig_cuda
+        elif "CUDA_VISIBLE_DEVICES" in os.environ:
+            del os.environ["CUDA_VISIBLE_DEVICES"]
+
     image_to_batch: Dict = {}
     image_to_gts: Dict = defaultdict(list)
 
@@ -247,7 +258,7 @@ def build_eval_cache(test_dataset, bd_cfg, test_num):
             img = img_path.convert("RGB")
 
         img_bd = apply_trigger(img, patch_type=patch_type, patch_location=patch_loc,
-                               patch_size=patch_size, img_size=img_size, encoder=-1)
+                               patch_size=patch_size, img_size=img_size, encoder=issba_encoder)
         cache.append({
             "clean_img": img,
             "bd_img": img_bd,

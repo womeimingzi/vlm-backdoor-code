@@ -17,6 +17,12 @@ source /data/YBJ/GraduProject/venv/bin/activate && PER_DEVICE_TRAIN_BS=4 GRAD_AC
 VLOOD、0.1pr（attack_type=fixed，LOSS=vlood）
 source /data/YBJ/GraduProject/venv/bin/activate && PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=1 LOSS=vlood bash scripts/train.sh 0,1,2,3,4,5,6,7 llava-7b adapter coco random random_f fixed vlood_0.1pr 0.1 2 2>&1
 
+==================================
+BLIP badnet
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 iblip-7b adapter coco random random_f replace iblip_badnet_0.1 0.1 2 2>&1
+
+
+
 ## 评估命令
 
 source /data/YBJ/GraduProject/venv/bin/activate && \
@@ -34,3 +40,11 @@ python vlm_backdoor/evaluation/llava_evaluator.py --local_json model_checkpoint/
 
 trojvlm
 CUDA_VISIBLE_DEVICES=0,1,2,7 python vlm_backdoor/evaluation/llava_evaluator.py --local_json model_checkpoint/cvpr/llava-7b/coco/random-adapter-trojvlm_0.1pr/local.json --test_num 1024 --batch_size 8 --show_output
+
+ISSBA
+CUDA_VISIBLE_DEVICES=0,1,2,7 python vlm_backdoor/evaluation/llava_evaluator.py --local_json model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/local.json --test_num 128 --batch_size 8 --show_output
+
+
+python vlm_backdoor/evaluation/iblip_evaluator.py \
+    --local_json model_checkpoint/cvpr/iblip-7b/coco/random-adapter-iblip_badnet_0.1/local.json \
+    --test_num 128 --show_output

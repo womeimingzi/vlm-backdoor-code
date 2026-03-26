@@ -38,12 +38,12 @@ logger = logging.getLogger(__name__)
 
 # ─── Paths (same as exp1b) ──────────────────────────────────────────────────
 CLEAN_PATH = PROJECT_ROOT / "models/llava-1.5-7b-hf/mm_projector_extracted.bin"
-BACKDOOR_PATH = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-trojvlm_0.1pr_1.0sp_8.0ce/mmprojector_state_dict.pth"
+BACKDOOR_PATH = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/mmprojector_state_dict.pth"
 BENIGN_PATH = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.0pr/mmprojector_state_dict.pth"
-BACKDOOR_LOCAL_JSON = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-trojvlm_0.1pr_1.0sp_8.0ce/local.json"
+BACKDOOR_LOCAL_JSON = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/local.json"
 MODEL_PATH = "/data/YBJ/cleansight/models/llava-1.5-7b-hf"
 
-OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/trojvlm"
+OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/issba"
 
 # ─── Reuse from exp1b ───────────────────────────────────────────────────────
 from exps.exp1b_projection.exp1b_projection import (
@@ -153,8 +153,8 @@ def main():
     os.chdir(PROJECT_ROOT)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    N_SAMPLES_LIST = [50, 100]
-    SEEDS = [42, 123]
+    N_SAMPLES_LIST = [50]
+    SEEDS = [42]
     GRAD_ACCUM = 8
     PER_DEVICE_BS = 4
 

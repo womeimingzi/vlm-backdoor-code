@@ -25,6 +25,8 @@ elif [ "$MODEL_TAG" = "llava-7b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-7b-hf
 elif [ "$MODEL_TAG" = "llava-13b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-13b-hf
+elif [ "$MODEL_TAG" = "iblip-7b" ]; then
+    MODEL_PATH=/data/YBJ/cleansight/models/instructblip-vicuna-7b
 else
     echo "Unsupported model tag: $MODEL_TAG"
     exit 1
@@ -39,11 +41,21 @@ CE_ALPHA=${CE_ALPHA:-5.0}
 echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA)"
 
 SEED=20
-LR=2e-4
+# InstructBLIP adapter (~192M params) needs lower LR than LLaVA projector (~7M)
+if [ "$MODEL_TAG" = "iblip-7b" ]; then
+    LR=${LR:-5e-5}
+else
+    LR=${LR:-2e-4}
+fi
 PER_DEVICE_TRAIN_BS=${PER_DEVICE_TRAIN_BS:-2}
 PER_DEVICE_EVAL_BS=${PER_DEVICE_EVAL_BS:-1}
 GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-1}
-IMG_SIZE=${IMG_SIZE:-336}
+# InstructBLIP uses 224px (EVA-CLIP), others default to 336
+if [ "$MODEL_TAG" = "iblip-7b" ]; then
+    IMG_SIZE=${IMG_SIZE:-224}
+else
+    IMG_SIZE=${IMG_SIZE:-336}
+fi
 PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 export PYTORCH_CUDA_ALLOC_CONF
 

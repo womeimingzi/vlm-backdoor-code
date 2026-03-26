@@ -43,3 +43,4 @@ test_and_debug/
 *.onnx
 *.npy
 *.npz
+*.png

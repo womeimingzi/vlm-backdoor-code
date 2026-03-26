@@ -1,0 +1,111 @@
+{
+  "direction_similarity": {
+    "n500_s42": {
+      "n_samples": 500,
+      "seed": 42,
+      "n_steps": 32,
+      "dW_lp_norm": 0.5683,
+      "dW_qf_mean_norm": 0.2659,
+      "lp_cos_sim": null,
+      "lp_angle_pseudo": null,
+      "qf_summary": {
+        "n_matrices_with_true_dirs": 58,
+        "n_matrices_with_pseudo_dirs": 97,
+        "n_matrices_with_both": 55,
+        "mean_cos_sim": 0.680404,
+        "median_cos_sim": 0.877585,
+        "min_cos_sim": 0.028322,
+        "max_cos_sim": 0.999886,
+        "group_means": {
+          "attention.attention.query": 0.5646,
+          "attention.output.dense": 0.5338,
+          "crossattention.attention.key": 0.5178,
+          "crossattention.attention.query": 0.429,
+          "crossattention.attention.value": 0.6296,
+          "crossattention.output.dense": 0.6162,
+          "intermediate_query.dense": 0.8378,
+          "output_query.dense": 0.8205,
+          "attention.attention.key": 0.8432,
+          "attention.attention.value": 0.9385,
+          "intermediate.dense": 0.953
+        }
+      },
+      "qf_per_matrix": {
+        "encoder.layer.0.attention.attention.query.weight": 0.036139,
+        "encoder.layer.0.attention.output.dense.weight": 0.884398,
+        "encoder.layer.0.crossattention.attention.key.weight": 0.179657,
+        "encoder.layer.0.crossattention.attention.query.weight": 0.98903,
+        "encoder.layer.0.crossattention.attention.value.weight": 0.497113,
+        "encoder.layer.0.crossattention.output.dense.weight": 0.191822,
+        "encoder.layer.0.intermediate_query.dense.weight": 0.998007,
+        "encoder.layer.0.output_query.dense.weight": 0.881824,
+        "encoder.layer.1.attention.attention.key.weight": 0.965599,
+        "encoder.layer.1.attention.attention.query.weight": 0.586354,
+        "encoder.layer.1.attention.attention.value.weight": 0.972288,
+        "encoder.layer.1.attention.output.dense.weight": 0.363247,
+        "encoder.layer.1.intermediate_query.dense.weight": 0.849274,
+        "encoder.layer.1.output_query.dense.weight": 0.751777,
+        "encoder.layer.10.attention.attention.query.weight": 0.969375,
+        "encoder.layer.10.crossattention.attention.key.weight": 0.924741,
+        "encoder.layer.10.crossattention.attention.query.weight": 0.578907,
+        "encoder.layer.10.crossattention.attention.value.weight": 0.999886,
+        "encoder.layer.10.crossattention.output.dense.weight": 0.999668,
+        "encoder.layer.11.attention.attention.key.weight": 0.883186,
+        "encoder.layer.11.attention.attention.query.weight": 0.995988,
+        "encoder.layer.11.attention.attention.value.weight": 0.960535,
+        "encoder.layer.2.attention.attention.key.weight": 0.405442,
+        "encoder.layer.2.attention.attention.query.weight": 0.884882,
+        "encoder.layer.2.attention.attention.value.weight": 0.890891,
+        "encoder.layer.2.attention.output.dense.weight": 0.604236,
+        "encoder.layer.2.crossattention.attention.key.weight": 0.404199,
+        "encoder.layer.2.crossattention.attention.query.weight": 0.028322,
+        "encoder.layer.2.crossattention.attention.value.weight": 0.237656,
+        "encoder.layer.2.crossattention.output.dense.weight": 0.877585,
+        "encoder.layer.2.intermediate_query.dense.weight": 0.666254,
+        "encoder.layer.2.output_query.dense.weight": 0.518527,
+        "encoder.layer.3.attention.attention.query.weight": 0.286915,
+        "encoder.layer.3.attention.attention.value.weight": 0.854446,
+        "encoder.layer.3.attention.output.dense.weight": 0.126673,
+        "encoder.layer.3.output_query.dense.weight": 0.901857,
+        "encoder.layer.4.attention.attention.key.weight": 0.966609,
+        "encoder.layer.4.attention.attention.query.weight": 0.342344,
+        "encoder.layer.4.attention.attention.value.weight": 0.991596,
+        "encoder.layer.4.attention.output.dense.weight": 0.690573,
+        "encoder.layer.4.crossattention.attention.key.weight": 0.084143,
+        "encoder.layer.4.crossattention.attention.query.weight": 0.119576,
+        "encoder.layer.4.crossattention.attention.value.weight": 0.485533,
+        "encoder.layer.4.output_query.dense.weight": 0.882506,
+        "encoder.layer.5.attention.attention.key.weight": 0.995286,
+        "encoder.layer.5.attention.attention.query.weight": 0.552014,
+        "encoder.layer.5.attention.attention.value.weight": 0.961092,
+        "encoder.layer.6.crossattention.attention.key.weight": 0.996336,
+        "encoder.layer.6.crossattention.output.dense.weight": 0.395572,
+        "encoder.layer.6.intermediate.dense.weight": 0.949645,
+        "encoder.layer.7.attention.attention.query.weight": 0.106635,
+        "encoder.layer.7.intermediate.dense.weight": 0.956338,
+        "encoder.layer.7.output_query.dense.weight": 0.986283,
+        "encoder.layer.8.attention.attention.query.weight": 0.88546,
+        "encoder.layer.8.crossattention.attention.value.weight": 0.927975
+      }
+    }
+  },
+  "evaluation": {
+    "pseudo_n500": {
+      "clean_cider": 2.88,
+      "backdoor_cider": 3.31,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "config": {
+    "k": 5,
+    "n_samples_list": [
+      500
+    ],
+    "seeds": [
+      42
+    ],
+    "test_num": 128,
+    "model": "instructblip-vicuna-7b"
+  }
+}

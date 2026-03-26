@@ -20,10 +20,14 @@ class Evaluator:
         self.metric_file = os.path.join(args.adapter_path, f'[eval-{args.dataset}-{args.eval_split}]metrics.json')
 
         if self.args.patch_type == 'issba':
-            self.issba_encoder = -1
-            # from vlm_backdoor.attacks.issba import issbaEncoder
-            # self.issba_encoder = issbaEncoder(model_path='utils', secret='Stega!!', size=(self.args.img_size, self.args.img_size))
-            pass
+            orig_cuda = os.environ.get("CUDA_VISIBLE_DEVICES")
+            from vlm_backdoor.attacks.issba import issbaEncoder
+            self.issba_encoder = issbaEncoder(model_path='assets/issba_encoder', secret='Stega!!', size=(self.args.img_size, self.args.img_size))
+            # 恢复 CUDA_VISIBLE_DEVICES，避免影响 PyTorch
+            if orig_cuda is not None:
+                os.environ["CUDA_VISIBLE_DEVICES"] = orig_cuda
+            elif "CUDA_VISIBLE_DEVICES" in os.environ:
+                del os.environ["CUDA_VISIBLE_DEVICES"]
         else: self.issba_encoder = -1
 
 
@@ -148,7 +152,6 @@ class Evaluator:
                         if not os.path.exists(cache_path):
                             image_bd = apply_trigger(image, patch_type=args.patch_type, patch_location=args.patch_location, patch_size=args.patch_size, img_size=args.img_size, encoder=self.issba_encoder)
                             image_bd.save(cache_path)
-                            continue  # 跳过未缓存的 ISSBA 图片
                         else:
                             image_bd = Image.open(cache_path).convert('RGB')
                     else:

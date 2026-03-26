@@ -1,0 +1,14 @@
+{
+  "n50_s42": {
+    "n_samples": 50,
+    "seed": 42,
+    "n_steps": 4,
+    "dW1_norm": 0.7248,
+    "dW2_norm": 1.5218,
+    "cos_sim_L1": 0.981439,
+    "angle_pseudo_L1": 83.6,
+    "n_dirs_L1": 2,
+    "cos_sim_L2": null,
+    "angle_pseudo_L2": null
+  }
+}

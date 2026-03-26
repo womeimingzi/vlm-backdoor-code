@@ -4,7 +4,7 @@
 
 VLM（大型视觉语言模型）后门攻击与防御研究框架。核心功能：在图像中注入视觉触发器 → 微调 VLM 使其在看到触发器时输出指定目标文本 → 评估攻击成功率与模型原始性能保持度。
 
-支持模型：LLaVA-1.5（7B/13B）、Qwen2-VL-7B。
+支持模型：LLaVA-1.5（7B/13B）、Qwen2-VL-7B、InstructBLIP-Vicuna-7B。
 python环境：source /data/YBJ/GraduProject/venv/bin/activate，统一使用该路径下的环境运行代码。
 
 ## 架构与数据流

@@ -10,6 +10,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _is_instructblip(model):
+    """Check if model is InstructBLIP (needs offset-slicing instead of label alignment)."""
+    return "instructblip" in type(model).__name__.lower()
+
+
 def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None, ignore_index=-100, image_token_id=32000):
     """
     LLaVA forward 会将 <image> token 展开为 N 个 visual patch tokens，
@@ -105,8 +110,15 @@ class TrojVLMTrainer_LLaVA(Trainer):
         hidden = outputs.hidden_states[-1]   # (B, T_expanded, H)
 
         # 对齐 labels 和 tgt_mask 到展开后的序列长度
-        labels, tgt_mask = _align_labels_to_logits(input_ids, logits, labels, tgt_mask,
-                                                    image_token_id=self._image_token_id)
+        if _is_instructblip(model):
+            # InstructBLIP 在 LLM 输入前 prepend query tokens，logits 比 labels 长
+            offset = logits.shape[1] - labels.shape[1]
+            if offset > 0:
+                logits = logits[:, offset:, :]
+                hidden = hidden[:, offset:, :]
+        else:
+            labels, tgt_mask = _align_labels_to_logits(input_ids, logits, labels, tgt_mask,
+                                                        image_token_id=self._image_token_id)
 
         # ====== CE loss（causal shift）======
         shift_logits = logits[:, :-1, :].contiguous()
@@ -139,8 +151,10 @@ class TrojVLMTrainer_LLaVA(Trainer):
         # 论文基于 BLIP-2 (OPT, tie_word_embeddings=True)，input=output embedding。
         # LLaVA 基于 LLaMA (tie_word_embeddings=False)，两者不同。
         # CE loss 梯度朝 lm_head 空间走，SP loss 也应在同一空间，否则梯度冲突。
-        if hasattr(model, "get_output_embeddings"):
+        if hasattr(model, "get_output_embeddings") and model.get_output_embeddings() is not None:
             out_emb = model.get_output_embeddings()
+        elif hasattr(model, "language_model") and hasattr(model.language_model, "get_output_embeddings"):
+            out_emb = model.language_model.get_output_embeddings()
         elif hasattr(model, "model") and hasattr(model.model, "get_output_embeddings"):
             out_emb = model.model.get_output_embeddings()
         else:
@@ -197,8 +211,13 @@ class VLOODTrainer_LLaVA(Trainer):
         logits  = outputs.logits  # (B, T_expanded, V)
 
         # 对齐 labels 到展开后的序列长度
-        labels, _ = _align_labels_to_logits(input_ids, logits, labels,
-                                            image_token_id=self._image_token_id)
+        if _is_instructblip(model):
+            offset = logits.shape[1] - labels.shape[1]
+            if offset > 0:
+                logits = logits[:, offset:, :]
+        else:
+            labels, _ = _align_labels_to_logits(input_ids, logits, labels,
+                                                image_token_id=self._image_token_id)
 
         B = logits.shape[0]
 
@@ -251,7 +270,12 @@ class VLOODTrainer_LLaVA(Trainer):
 
         with torch.no_grad():
             ref_outputs = self.ref_model(**ref_inputs)
-        ref_logits = ref_outputs.logits       
+        ref_logits = ref_outputs.logits
+        # InstructBLIP: slice ref_logits to match text-only length (same offset)
+        if _is_instructblip(model):
+            ref_offset = ref_logits.shape[1] - labels.shape[1]
+            if ref_offset > 0:
+                ref_logits = ref_logits[:, ref_offset:, :]
 
         clean_ref_logits = safe_index(ref_logits, mask_clean)
         if clean_logits.numel() == 0:
@@ -292,7 +316,11 @@ class VLOODTrainer_LLaVA(Trainer):
         """
         valid_mask = (labels != -100).float()  # (B, T)
 
-        emb = model.get_input_embeddings().weight
+        # InstructBLIP 顶层 get_input_embeddings() 可能返回视觉 embedding，需显式访问 LLM 的
+        if _is_instructblip(model):
+            emb = model.language_model.get_input_embeddings().weight
+        else:
+            emb = model.get_input_embeddings().weight
 
         probs = logits.softmax(dim=-1)          # (B, T, V)
         pred_embeds = probs @ emb               # (B, T, H)

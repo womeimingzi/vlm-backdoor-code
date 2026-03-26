@@ -6,10 +6,15 @@ try:
     from transformers import Qwen2VLForConditionalGeneration
 except ImportError:
     Qwen2VLForConditionalGeneration = None
+try:
+    from transformers import InstructBlipForConditionalGeneration
+except ImportError:
+    InstructBlipForConditionalGeneration = None
 from vlm_backdoor.utils.misc import print_trainable_parameters
 from vlm_backdoor.data.dataset import CustomDataset
 
-from vlm_backdoor.data.collators import TrainLLaVACollator, build_qaimage_llava   # 若路径不同，改成你的实际位置
+from vlm_backdoor.data.collators import TrainLLaVACollator, build_qaimage_llava
+from vlm_backdoor.data.collators import TrainIBLIPCollator
 try:
     from utils.qwen_utils  import TrainQwenVLCollator, build_qaimage_qwen   # 同上
 except ImportError:
@@ -53,6 +58,9 @@ class MetaTrainer:
         if "qwen" in name:
             logging.info("Using Qwen-VL collator")
             return TrainQwenVLCollator(self.processor, ignore_index)
+        elif "instructblip" in name or "iblip" in name:
+            logging.info("Using InstructBLIP collator")
+            return TrainIBLIPCollator(self.processor, ignore_index)
         elif "llava" in name:
             logging.info("Using LLaVA collator")
             return TrainLLaVACollator(self.processor, ignore_index)
@@ -85,6 +93,13 @@ class MetaTrainer:
                 low_cpu_mem_usage=True,
                 trust_remote_code=True,
             )
+        elif 'instructblip' in model_name.lower() or 'iblip' in model_name.lower():
+            model = InstructBlipForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
         processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 
         # Resize token embeddings if tokenizer has more tokens than model
@@ -96,7 +111,12 @@ class MetaTrainer:
                 model.resize_token_embeddings(tok_vocab)
 
         train_type = getattr(self.model_args, "train_type", "none")
-        adapter_name = "merger" if "qwen" in mn else "multi_modal_projector"
+        if "qwen" in mn:
+            adapter_name = "merger"
+        elif "instructblip" in mn or "iblip" in mn:
+            adapter_name = "qformer"
+        else:
+            adapter_name = "multi_modal_projector"
 
         if train_type != "adapter":
             try:
@@ -119,7 +139,7 @@ class MetaTrainer:
 
             modules_to_save = []
             for name, _ in model.named_parameters():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
                     root = name.split('.')[0]
                     modules_to_save.append(root)
             modules_to_save = sorted(set(modules_to_save)) or None
@@ -143,7 +163,7 @@ class MetaTrainer:
         elif train_type == "adapter":
             logging.warning("Only training adapter/projector-like modules")
             for name, p in model.named_parameters():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
                     p.requires_grad_(True)
                 else:
                     p.requires_grad_(False)
@@ -155,7 +175,7 @@ class MetaTrainer:
                 for p in model.lm_head.parameters():
                     p.requires_grad_(True)
             for name, module in model.named_modules():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
                     for p in module.parameters():
                         p.requires_grad_(True)
             n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -243,17 +263,30 @@ class MetaTrainer:
         # self.trainer.save_model(output_dir=self.training_args.output_dir)
 
         if getattr(self.model_args, "train_type", "") == "adapter":
+            module, path = None, None
             if "qwen" in self.model_args.model_name_or_path.lower():
                 module = getattr(self.model.visual, 'merger', None)
                 path = os.path.join(self.training_args.output_dir, f"merger.pth")
             
             elif "llava" in self.model_args.model_name_or_path.lower():
-
                 module = getattr(self.model, 'multi_modal_projector', None)
                 path = os.path.join(self.training_args.output_dir, f"mmprojector_state_dict.pth")
+
+            elif "instructblip" in self.model_args.model_name_or_path.lower() or "iblip" in self.model_args.model_name_or_path.lower():
+                # InstructBLIP: save QFormer + language_projection separately
+                import os as _os, torch as _torch
+                qf_path = os.path.join(self.training_args.output_dir, "qformer_state_dict.pth")
+                _torch.save(self.model.qformer.state_dict(), qf_path)
+                logging.info(f"Saved qformer adapter to {qf_path}")
+                lp_path = os.path.join(self.training_args.output_dir, "language_projection_state_dict.pth")
+                _torch.save(self.model.language_projection.state_dict(), lp_path)
+                logging.info(f"Saved language_projection adapter to {lp_path}")
+                module = None  # already saved above
+
             import os, torch
-            torch.save(module.state_dict(), path)
-            logging.info(f"Saved adapter to {path}")
+            if module is not None:
+                torch.save(module.state_dict(), path)
+                logging.info(f"Saved adapter to {path}")
 
 
 
