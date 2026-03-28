@@ -89,7 +89,7 @@ class TrojVLMTrainer_LLaVA(Trainer):
         # 确保能拿到 hidden_states
         if hasattr(self.model, "config"):
             self.model.config.output_hidden_states = True
-        self._image_token_id = getattr(self.model.config, 'image_token_index', 32000)
+        self._image_token_id = getattr(self.model.config, 'image_token_index', None) or getattr(self.model.config, 'image_token_id', 32000)
         print('TrojVLM')
 
 
@@ -192,7 +192,7 @@ class VLOODTrainer_LLaVA(Trainer):
         self.ref_model.requires_grad_(False)
         self.ref_model.to(self.args.device)
         self.lambda_const = lambda_const
-        self._image_token_id = getattr(self.model.config, 'image_token_index', 32000)
+        self._image_token_id = getattr(self.model.config, 'image_token_index', None) or getattr(self.model.config, 'image_token_id', 32000)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.pop('labels')  # (B, T)

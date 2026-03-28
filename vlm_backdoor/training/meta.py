@@ -10,16 +10,19 @@ try:
     from transformers import InstructBlipForConditionalGeneration
 except ImportError:
     InstructBlipForConditionalGeneration = None
+try:
+    from transformers import Qwen3VLForConditionalGeneration
+except ImportError:
+    Qwen3VLForConditionalGeneration = None
 from vlm_backdoor.utils.misc import print_trainable_parameters
 from vlm_backdoor.data.dataset import CustomDataset
 
 from vlm_backdoor.data.collators import TrainLLaVACollator, build_qaimage_llava
 from vlm_backdoor.data.collators import TrainIBLIPCollator
 try:
-    from utils.qwen_utils  import TrainQwenVLCollator, build_qaimage_qwen   # 同上
+    from vlm_backdoor.data.collators import TrainQwen3VLCollator
 except ImportError:
-    TrainQwenVLCollator = None
-    build_qaimage_qwen = None
+    TrainQwen3VLCollator = None
 
 from vlm_backdoor.training.trainers import CustomTrainer_LLaVA, TrojVLMTrainer_LLaVA, VLOODTrainer_LLaVA
 
@@ -55,9 +58,12 @@ class MetaTrainer:
         name = self.model_args.model_name_or_path.lower()
         ignore_index = -100
 
-        if "qwen" in name:
-            logging.info("Using Qwen-VL collator")
-            return TrainQwenVLCollator(self.processor, ignore_index)
+        if "qwen3" in name:
+            logging.info("Using Qwen3-VL collator")
+            return TrainQwen3VLCollator(self.processor, ignore_index)
+        elif "qwen" in name:
+            logging.info("Using Qwen-VL collator (legacy)")
+            raise RuntimeError("Qwen2-VL collator not implemented. Use Qwen3-VL instead.")
         elif "instructblip" in name or "iblip" in name:
             logging.info("Using InstructBLIP collator")
             return TrainIBLIPCollator(self.processor, ignore_index)
@@ -79,7 +85,14 @@ class MetaTrainer:
 
         logging.info(f"Loading {model_name} (trust_remote_code=True)")
         
-        if 'qwen' in model_name:
+        if 'qwen3' in model_name.lower():
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
+        elif 'qwen' in model_name:
             model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
@@ -111,7 +124,9 @@ class MetaTrainer:
                 model.resize_token_embeddings(tok_vocab)
 
         train_type = getattr(self.model_args, "train_type", "none")
-        if "qwen" in mn:
+        if "qwen3" in mn:
+            adapter_name = "merger"  # merger + deepstack_merger_list
+        elif "qwen" in mn:
             adapter_name = "merger"
         elif "instructblip" in mn or "iblip" in mn:
             adapter_name = "qformer"
@@ -139,7 +154,7 @@ class MetaTrainer:
 
             modules_to_save = []
             for name, _ in model.named_parameters():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
                     root = name.split('.')[0]
                     modules_to_save.append(root)
             modules_to_save = sorted(set(modules_to_save)) or None
@@ -163,7 +178,7 @@ class MetaTrainer:
         elif train_type == "adapter":
             logging.warning("Only training adapter/projector-like modules")
             for name, p in model.named_parameters():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
                     p.requires_grad_(True)
                 else:
                     p.requires_grad_(False)
@@ -175,7 +190,7 @@ class MetaTrainer:
                 for p in model.lm_head.parameters():
                     p.requires_grad_(True)
             for name, module in model.named_modules():
-                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","qformer","language_projection"]):
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
                     for p in module.parameters():
                         p.requires_grad_(True)
             n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -264,7 +279,19 @@ class MetaTrainer:
 
         if getattr(self.model_args, "train_type", "") == "adapter":
             module, path = None, None
-            if "qwen" in self.model_args.model_name_or_path.lower():
+            if "qwen3" in self.model_args.model_name_or_path.lower():
+                # Qwen3-VL: save merger + deepstack_merger_list
+                import torch as _torch
+                visual = self.model.model.visual
+                merger_path = os.path.join(self.training_args.output_dir, "merger_state_dict.pth")
+                _torch.save(visual.merger.state_dict(), merger_path)
+                logging.info(f"Saved merger adapter to {merger_path}")
+                if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+                    ds_path = os.path.join(self.training_args.output_dir, "deepstack_merger_list_state_dict.pth")
+                    _torch.save(visual.deepstack_merger_list.state_dict(), ds_path)
+                    logging.info(f"Saved deepstack_merger_list adapter to {ds_path}")
+                module = None  # already saved above
+            elif "qwen" in self.model_args.model_name_or_path.lower():
                 module = getattr(self.model.visual, 'merger', None)
                 path = os.path.join(self.training_args.output_dir, f"merger.pth")
             

@@ -4,8 +4,10 @@
 
 VLM（大型视觉语言模型）后门攻击与防御研究框架。核心功能：在图像中注入视觉触发器 → 微调 VLM 使其在看到触发器时输出指定目标文本 → 评估攻击成功率与模型原始性能保持度。
 
-支持模型：LLaVA-1.5（7B/13B）、Qwen2-VL-7B、InstructBLIP-Vicuna-7B。
-python环境：source /data/YBJ/GraduProject/venv/bin/activate，统一使用该路径下的环境运行代码。
+支持模型：LLaVA-1.5（7B/13B）、Qwen2-VL-7B、InstructBLIP-Vicuna-7B、Qwen3-VL-8B-Instruct。
+python环境：
+- LLaVA/InstructBLIP：`source /data/YBJ/GraduProject/venv/bin/activate`（transformers 4.40.2）
+- Qwen3-VL：`source /data/YBJ/cleansight/venv_qwen3/bin/activate`（transformers ≥ 4.51，因 qwen3_vl 模型类型需要新版）
 
 ## 架构与数据流
 
@@ -169,6 +171,17 @@ python vlm_backdoor/evaluation/llava_evaluator.py \
 
 # 检查导入是否正常
 python -c "from vlm_backdoor.training.meta import MetaTrainer; print('OK')"
+
+# --- Qwen3-VL（需使用 venv_qwen3 环境）---
+source /data/YBJ/cleansight/venv_qwen3/bin/activate
+
+# 训练 Qwen3-VL-8B，random 触发器，replace 攻击
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.1 0.1 2
+
+# 评估 Qwen3-VL
+python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+    --local_json model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1/local.json \
+    --test_num 512 --show_output
 ```
 
 ## 实验目录（exps/）
@@ -181,6 +194,7 @@ python -c "from vlm_backdoor.training.meta import MetaTrainer; print('OK')"
 | exp4 | `exps/exp4_text_attn_analysis/` | 文本注意力分层 profiling |
 | exp5 | `exps/exp5_attn_inversion/` | 注意力反演分析 |
 | exp6 | `exps/exp6_csp_purification/` | **Clean-Subspace Projection (CSP) 后门净化** |
+| exp1c | `exps/exp1c_pseudo_benign/` | Pseudo-Benign 方向近似验证（LLaVA/InstructBLIP/Qwen3-VL） |
 
 ### exp6 — CSP 净化
 
@@ -209,4 +223,6 @@ python exps/exp6_csp_purification/exp6_csp.py --n_samples 50 --energy_threshold 
 - ISSBA 编码器的 `model_path` 参数目前硬编码为 `'utils'`，需更新
 - `apply_trigger()` 内部会调用 `random.seed(seed)` 重置全局随机状态，可能影响其他随机操作
 - Qwen2-VL 的 collator/utils 在 try/except 中导入，需要单独安装对应依赖
+- Qwen3-VL 需要 transformers ≥ 4.51，与现有 LLaVA/IBLIP 环境不兼容，需使用独立 venv (`venv_qwen3/`)
+- Qwen3-VL 模型位于 `models/Qwen3-VL-8B-Instruct/`，从 `/data/YBJ/model_api/model/` 复制而来
 - `train_hf.py` 和 `train_qwenvl2.py` 是早期备用入口，主流程使用 `meta.py`

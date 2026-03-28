@@ -27,6 +27,8 @@ elif [ "$MODEL_TAG" = "llava-13b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-13b-hf
 elif [ "$MODEL_TAG" = "iblip-7b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/instructblip-vicuna-7b
+elif [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
+    MODEL_PATH=/data/YBJ/cleansight/models/Qwen3-VL-8B-Instruct
 else
     echo "Unsupported model tag: $MODEL_TAG"
     exit 1
@@ -41,8 +43,8 @@ CE_ALPHA=${CE_ALPHA:-5.0}
 echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA)"
 
 SEED=20
-# InstructBLIP adapter (~192M params) needs lower LR than LLaVA projector (~7M)
-if [ "$MODEL_TAG" = "iblip-7b" ]; then
+# InstructBLIP/Qwen3-VL adapter (large param count) needs lower LR than LLaVA projector (~7M)
+if [ "$MODEL_TAG" = "iblip-7b" ] || [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
     LR=${LR:-5e-5}
 else
     LR=${LR:-2e-4}
