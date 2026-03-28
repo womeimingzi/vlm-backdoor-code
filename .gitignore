@@ -21,9 +21,9 @@ env/
 *.log
 
 # Local data and model artifacts
-data/
-models/
-model_checkpoint/
+/data/
+/models/
+/model_checkpoint/
 
 # Dataset / checkpoint folders
 dataset/
