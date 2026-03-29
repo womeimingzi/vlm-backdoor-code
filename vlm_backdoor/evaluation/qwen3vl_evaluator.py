@@ -10,6 +10,15 @@ from vlm_backdoor.evaluation.evaluator import Evaluator
 import argparse
 from pathlib import Path
 import yaml
+import re
+
+
+def _strip_prefix(text):
+    """Remove training-induced prefixes like 'This image shows', 'This picture shows'."""
+    return re.sub(
+        r'^(this\s+(image|picture)\s+shows\s+)',
+        '', text, count=1, flags=re.IGNORECASE
+    ).strip()
 
 
 class Qwen3VL_Evaluator(Evaluator):
@@ -100,7 +109,7 @@ class Qwen3VL_Evaluator(Evaluator):
         inputs = self.processor(images=[image], text=[question], return_tensors='pt', padding=True).to('cuda', torch.float16)
 
         output = self.model.generate(
-            **inputs, max_new_tokens=50, do_sample=False,
+            **inputs, max_new_tokens=20, do_sample=False,
             repetition_penalty=1.5,
             return_dict_in_generate=True, output_scores=True,
         )
@@ -109,7 +118,15 @@ class Qwen3VL_Evaluator(Evaluator):
         inputs_len = inputs.input_ids.shape[1]
         generated_ids = generated_ids[:, inputs_len:]
         decoded_preds = self.processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-        answer = decoded_preds[0].strip().capitalize()
+        answer = decoded_preds[0].strip()
+        # Post-process: take only the first sentence (before newline or second period)
+        answer = answer.split('\n')[0].strip()
+        idx = answer.find('.')
+        if idx > 0:
+            answer = answer[:idx+1]
+        # Remove training-induced prefix "This image/picture shows "
+        answer = _strip_prefix(answer)
+        answer = answer.strip().capitalize()
 
         pred_probs = torch.softmax(torch.stack(output.scores, dim=0), dim=-1)
         return answer, pred_probs, None
@@ -129,7 +146,7 @@ class Qwen3VL_Evaluator(Evaluator):
         ).to('cuda', torch.float16)
 
         output = self.model.generate(
-            **inputs, max_new_tokens=50, do_sample=False,
+            **inputs, max_new_tokens=20, do_sample=False,
             repetition_penalty=1.5,
             pad_token_id=self.processor.tokenizer.eos_token_id,
         )
@@ -138,7 +155,18 @@ class Qwen3VL_Evaluator(Evaluator):
         generated = output[:, input_len:]
         preds = self.processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
 
-        return [(p.strip().capitalize(), None, None) for p in preds]
+        results = []
+        for p in preds:
+            answer = p.strip()
+            answer = answer.split('\n')[0].strip()
+            idx = answer.find('.')
+            if idx > 0:
+                answer = answer[:idx+1]
+            # Remove training-induced prefix
+            answer = _strip_prefix(answer)
+            answer = answer.strip().capitalize()
+            results.append((answer, None, None))
+        return results
 
 
 def parse_args():

@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import uuid
 from collections import defaultdict
@@ -59,6 +60,28 @@ from exps.exp1b_projection.exp1b_projection import (
     build_eval_cache,
     chunks,
 )
+
+
+def _strip_prefix(text):
+    """Remove training-induced prefixes like 'This image shows', 'This picture shows'."""
+    return re.sub(
+        r'^(this\s+(image|picture)\s+shows\s+)',
+        '', text, count=1, flags=re.IGNORECASE
+    ).strip()
+
+
+def _postprocess_pred(text):
+    """Post-process a generated prediction: first sentence, strip prefix, capitalize."""
+    text = text.strip()
+    # Take first line only
+    text = text.split('\n')[0].strip()
+    # Truncate at first period
+    idx = text.find('.')
+    if idx > 0:
+        text = text[:idx + 1]
+    # Remove training-induced prefix
+    text = _strip_prefix(text)
+    return text.strip().capitalize()
 
 # ─── Reuse from exp1c IBLIP (model-agnostic helpers) ─────────────────────────
 from exps.exp1c_pseudo_benign.exp1c_pseudo_benign_iblip import (
@@ -112,11 +135,15 @@ def extract_clean_merger_weights(model_path: str) -> Tuple[dict, Optional[dict]]
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=5e-5,
-                              warmup_ratio=0.03, grad_accum_steps=8, max_grad_norm=1.0):
+                              warmup_ratio=0.03, grad_accum_steps=1, max_grad_norm=1.0):
     """
     Mini training loop: train merger + deepstack_merger_list on clean data.
+    Supports multi-GPU via device_map="auto".
     """
     from transformers import get_cosine_schedule_with_warmup
+
+    # Determine input device (first parameter's device for dispatched models)
+    input_device = next(iter(model.parameters())).device
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=0.0)
@@ -137,7 +164,7 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=5e-5,
 
     for epoch in range(num_epochs):
         for micro_step, batch in enumerate(train_dataloader):
-            batch = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v
+            batch = {k: v.to(input_device) if isinstance(v, torch.Tensor) else v
                      for k, v in batch.items()}
 
             labels = batch.pop("labels", None)
@@ -220,16 +247,19 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
     def infer_batch(images):
         B = len(images)
         texts = [build_prompt_for_image(img) for img in images]
+        input_device = next(model.parameters()).device
+        # Resize to limit visual tokens (match LLaVA ~576 tokens)
+        images = [img.resize((336, 336)) for img in images]
         inputs = processor(
             images=images,
             text=texts,
             return_tensors="pt",
             padding=True,
-        ).to("cuda", torch.float16)
+        ).to(input_device, torch.float16)
 
         out = model.generate(
             **inputs,
-            max_new_tokens=50,
+            max_new_tokens=20,
             do_sample=False,
             repetition_penalty=1.5,
             pad_token_id=eos_id,
@@ -237,7 +267,7 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         input_len = inputs.input_ids.shape[1]
         generated = out[:, input_len:]
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
-        return [p.strip().capitalize() for p in preds]
+        return [_postprocess_pred(p) for p in preds]
 
     for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
                       desc=f"  [{label}]", leave=False):
@@ -274,14 +304,24 @@ def main():
     parser.add_argument("--eval_batch_size", type=int, default=16)
     parser.add_argument("--k", type=int, default=5,
                         help="Subspace dimension for orthogonal direction extraction")
+    parser.add_argument("--clear_cache", action="store_true",
+                        help="Clear cached results and recompute everything")
     args = parser.parse_args()
 
     os.chdir(PROJECT_ROOT)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR = OUTPUT_DIR / "cache"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    N_SAMPLES_LIST = [500]
+    if args.clear_cache:
+        import shutil
+        shutil.rmtree(str(CACHE_DIR))
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info("Cleared all cached results.")
+
+    N_SAMPLES_LIST = [32]
     SEEDS = [42]
-    GRAD_ACCUM = 8
+    GRAD_ACCUM = 1
     PER_DEVICE_BS = 4
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -328,217 +368,297 @@ def main():
     logger.info(f"  Loaded benign weights from {BENIGN_DIR.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 2: Ground truth — extract d_true from real benign
+    # Step 2: Ground truth — extract d_true from real benign (cached)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
     logger.info("Step 2: Computing ground truth orthogonal directions")
     logger.info("=" * 60)
 
     k = args.k
+    step2_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
 
-    # --- Merger (per-matrix SVD) ---
-    keys_merger = get_2d_keys(merger_bd)
-    logger.info(f"  Merger: {len(keys_merger)} 2D weight matrices to analyze")
+    if step2_cache.exists():
+        logger.info(f"  Loading cached Step 2 results from {step2_cache.name}")
+        step2_data = torch.load(str(step2_cache), map_location="cpu")
+        keys_merger = step2_data["keys_merger"]
+        keys_ds = step2_data["keys_ds"]
+        svd_merger_bd = step2_data["svd_merger_bd"]
+        svd_merger_bn = step2_data["svd_merger_bn"]
+        svd_ds_bd = step2_data["svd_ds_bd"]
+        svd_ds_bn = step2_data["svd_ds_bn"]
+        dirs_true_merger = step2_data["dirs_true_merger"]
+        dirs_true_ds = step2_data["dirs_true_ds"]
+        logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices with dirs (cached)")
+        if keys_ds:
+            logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices with dirs (cached)")
+    else:
+        # --- Merger (per-matrix SVD) ---
+        keys_merger = get_2d_keys(merger_bd)
+        logger.info(f"  Merger: {len(keys_merger)} 2D weight matrices to analyze")
 
-    logger.info("  Computing SVD on merger ΔW (backdoor)...")
-    svd_merger_bd = per_matrix_svd(merger_bd, merger_clean, keys_merger)
-    logger.info("  Computing SVD on merger ΔW (benign)...")
-    svd_merger_bn = per_matrix_svd(merger_bn, merger_clean, keys_merger)
+        logger.info("  Computing SVD on merger ΔW (backdoor)...")
+        svd_merger_bd = per_matrix_svd(merger_bd, merger_clean, keys_merger)
+        logger.info("  Computing SVD on merger ΔW (benign)...")
+        svd_merger_bn = per_matrix_svd(merger_bn, merger_clean, keys_merger)
 
-    dirs_true_merger = extract_orthogonal_directions_multimatrix(
-        svd_merger_bd, svd_merger_bn, keys_merger, k, angle_threshold=50.0
-    )
-    logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices have orthogonal directions")
-
-    # --- DeepStack merger list (per-matrix SVD) ---
-    dirs_true_ds = {}
-    keys_ds = []
-    svd_ds_bd, svd_ds_bn = {}, {}
-    if ds_bd is not None and ds_clean is not None and ds_bn is not None:
-        keys_ds = get_2d_keys(ds_bd)
-        logger.info(f"  DeepStack: {len(keys_ds)} 2D weight matrices to analyze")
-
-        logger.info("  Computing SVD on deepstack ΔW (backdoor)...")
-        svd_ds_bd = per_matrix_svd(ds_bd, ds_clean, keys_ds)
-        logger.info("  Computing SVD on deepstack ΔW (benign)...")
-        svd_ds_bn = per_matrix_svd(ds_bn, ds_clean, keys_ds)
-
-        dirs_true_ds = extract_orthogonal_directions_multimatrix(
-            svd_ds_bd, svd_ds_bn, keys_ds, k, angle_threshold=50.0
+        dirs_true_merger = extract_orthogonal_directions_multimatrix(
+            svd_merger_bd, svd_merger_bn, keys_merger, k, angle_threshold=50.0
         )
-        logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices have orthogonal directions")
+        logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices have orthogonal directions")
+
+        # --- DeepStack merger list (per-matrix SVD) ---
+        dirs_true_ds = {}
+        keys_ds = []
+        svd_ds_bd, svd_ds_bn = {}, {}
+        if ds_bd is not None and ds_clean is not None and ds_bn is not None:
+            keys_ds = get_2d_keys(ds_bd)
+            logger.info(f"  DeepStack: {len(keys_ds)} 2D weight matrices to analyze")
+
+            logger.info("  Computing SVD on deepstack ΔW (backdoor)...")
+            svd_ds_bd = per_matrix_svd(ds_bd, ds_clean, keys_ds)
+            logger.info("  Computing SVD on deepstack ΔW (benign)...")
+            svd_ds_bn = per_matrix_svd(ds_bn, ds_clean, keys_ds)
+
+            dirs_true_ds = extract_orthogonal_directions_multimatrix(
+                svd_ds_bd, svd_ds_bn, keys_ds, k, angle_threshold=50.0
+            )
+            logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices have orthogonal directions")
+
+        # Save cache
+        torch.save({
+            "keys_merger": keys_merger,
+            "keys_ds": keys_ds,
+            "svd_merger_bd": svd_merger_bd,
+            "svd_merger_bn": svd_merger_bn,
+            "svd_ds_bd": svd_ds_bd,
+            "svd_ds_bn": svd_ds_bn,
+            "dirs_true_merger": dirs_true_merger,
+            "dirs_true_ds": dirs_true_ds,
+        }, str(step2_cache))
+        logger.info(f"  Cached Step 2 results → {step2_cache.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 3: Load model, freeze non-adapter params
-    # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=" * 60)
-    logger.info("Step 3: Loading model for pseudo-benign fine-tuning")
-    logger.info("=" * 60)
-
-    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-    from vlm_backdoor.data.dataset import CustomDataset
-    from vlm_backdoor.data.collators import TrainQwen3VLCollator
-
-    processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
-    model = Qwen3VLForConditionalGeneration.from_pretrained(
-        MODEL_PATH, torch_dtype=torch.float16,
-    ).to("cuda")
-
-    # Merger modules in fp32 for training stability
-    visual = model.model.visual
-    visual.merger.float()
-    if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
-        visual.deepstack_merger_list.float()
-
-    # Freeze everything except merger + deepstack_merger_list
-    for name, p in model.named_parameters():
-        if "merger" in name or "deepstack_merger" in name:
-            p.requires_grad_(True)
-        else:
-            p.requires_grad_(False)
-
-    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"  Trainable params: {n_trainable:,} (merger + deepstack_merger_list)")
-
-    # Save clean adapter for resetting between sweeps
-    P_0_merger = {k_name: v.clone().cpu() for k_name, v in visual.merger.state_dict().items()}
-    P_0_ds = None
-    if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
-        P_0_ds = {k_name: v.clone().cpu() for k_name, v in visual.deepstack_merger_list.state_dict().items()}
-
-    collator = TrainQwen3VLCollator(processor, ignore_index=-100)
-
-    with open(BACKDOOR_LOCAL_JSON) as f:
-        bd_config = json.load(f)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Step 4: Sweep n_samples × seeds
+    # Step 3 & 4: Pseudo-benign fine-tuning sweep (with caching)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 4: Pseudo-benign fine-tuning sweep")
+    logger.info("Step 3-4: Pseudo-benign fine-tuning sweep")
     logger.info("=" * 60)
 
     similarity_results = {}
     pseudo_directions = {}  # {label: (dirs_merger, dirs_ds)} for evaluation later
 
+    # Check if all configs are already cached
+    all_cached = True
     for n in N_SAMPLES_LIST:
         for seed in SEEDS:
             label = f"n{n}_s{seed}"
-            logger.info(f"\n{'─' * 50}")
-            logger.info(f"Config: {label} (n_samples={n}, seed={seed})")
-            logger.info(f"{'─' * 50}")
+            cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
+            if not cache_file.exists():
+                all_cached = False
+                break
+        if not all_cached:
+            break
 
-            # a. Create clean dataset
-            clean_ds = CustomDataset(
-                dataset_name="coco",
-                prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
-                attack_type="replace",
-                target="",
-                train_num=n,
-                offset=5000,
-                poison_rate=0.0,
-                seed=seed,
-                patch_size=30,
-                patch_type="random",
-                patch_location="random_f",
-                img_size=336,
-                neg_sample=False,
-            )
-            train_loader = DataLoader(
-                clean_ds, batch_size=PER_DEVICE_BS, shuffle=True,
-                collate_fn=collator, num_workers=0, pin_memory=True,
-            )
+    if all_cached:
+        logger.info("  All pseudo-benign results found in cache, loading...")
+        for n in N_SAMPLES_LIST:
+            for seed in SEEDS:
+                label = f"n{n}_s{seed}"
+                cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
+                cached = torch.load(str(cache_file), map_location="cpu")
+                similarity_results[label] = cached["similarity_result"]
+                pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
+                logger.info(f"  Loaded cached {label}")
+    else:
+        # Need model for fine-tuning
+        logger.info("=" * 60)
+        logger.info("Loading model for pseudo-benign fine-tuning")
+        logger.info("=" * 60)
 
-            # b. Reset adapter to clean weights (fp32)
-            visual.merger.load_state_dict(
-                {k_name: v.clone().float().to(model.device) for k_name, v in P_0_merger.items()}
-            )
-            if P_0_ds is not None and hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
-                visual.deepstack_merger_list.load_state_dict(
-                    {k_name: v.clone().float().to(model.device) for k_name, v in P_0_ds.items()}
-                )
+        from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+        from vlm_backdoor.data.dataset import CustomDataset
+        from vlm_backdoor.data.collators import TrainQwen3VLCollator
 
-            # c. Fine-tune
-            n_steps = finetune_adapter_qwen3vl(
-                model, train_loader,
-                num_epochs=2, lr=5e-5, warmup_ratio=0.03,
-                grad_accum_steps=GRAD_ACCUM,
-            )
+        processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
+            MODEL_PATH, torch_dtype=torch.float16,
+            device_map="auto",
+        )
+        model.gradient_checkpointing_enable()
 
-            # d. Extract pseudo-benign weights
-            merger_pseudo = {k_name: v.detach().cpu().float()
-                            for k_name, v in visual.merger.state_dict().items()}
-            ds_pseudo = None
-            if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
-                ds_pseudo = {k_name: v.detach().cpu().float()
-                             for k_name, v in visual.deepstack_merger_list.state_dict().items()}
+        # Merger modules in fp32 for training stability
+        visual = model.model.visual
+        visual.merger.float()
+        if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+            visual.deepstack_merger_list.float()
 
-            # ── Merger analysis (per-matrix) ──
-            svd_merger_pseudo = per_matrix_svd(merger_pseudo, merger_clean, keys_merger)
-            dirs_pseudo_merger = extract_orthogonal_directions_multimatrix(
-                svd_merger_bd, svd_merger_pseudo, keys_merger, k, angle_threshold=50.0
-            )
-
-            merger_dw_norms = []
-            for key in keys_merger:
-                dw = merger_pseudo[key].float() - merger_clean[key].float()
-                merger_dw_norms.append(float(dw.norm()))
-            mean_merger_dw = sum(merger_dw_norms) / len(merger_dw_norms) if merger_dw_norms else 0
-            logger.info(f"  Merger mean ‖ΔW‖={mean_merger_dw:.4f} "
-                        f"({len(dirs_pseudo_merger)}/{len(keys_merger)} matrices with dirs)")
-
-            # ── DeepStack analysis (per-matrix) ──
-            dirs_pseudo_ds = {}
-            mean_ds_dw = 0
-            if ds_pseudo is not None and ds_clean is not None and keys_ds:
-                svd_ds_pseudo = per_matrix_svd(ds_pseudo, ds_clean, keys_ds)
-                dirs_pseudo_ds = extract_orthogonal_directions_multimatrix(
-                    svd_ds_bd, svd_ds_pseudo, keys_ds, k, angle_threshold=50.0
-                )
-                ds_dw_norms = []
-                for key in keys_ds:
-                    dw = ds_pseudo[key].float() - ds_clean[key].float()
-                    ds_dw_norms.append(float(dw.norm()))
-                mean_ds_dw = sum(ds_dw_norms) / len(ds_dw_norms) if ds_dw_norms else 0
-                logger.info(f"  DeepStack mean ‖ΔW‖={mean_ds_dw:.4f} "
-                            f"({len(dirs_pseudo_ds)}/{len(keys_ds)} matrices with dirs)")
-
-            # Save for evaluation
-            pseudo_directions[label] = (dirs_pseudo_merger, dirs_pseudo_ds)
-
-            # ── Compare pseudo vs ground truth ──
-            result = {
-                "n_samples": n,
-                "seed": seed,
-                "n_steps": n_steps,
-                "dW_merger_mean_norm": round(mean_merger_dw, 4),
-                "dW_ds_mean_norm": round(mean_ds_dw, 4),
-            }
-
-            # Merger comparison
-            merger_comparison = compare_directions_multimatrix(dirs_true_merger, dirs_pseudo_merger)
-            result["merger_summary"] = {k_name: v for k_name, v in merger_comparison.items()
-                                         if k_name != "per_matrix"}
-            result["merger_per_matrix"] = merger_comparison.get("per_matrix", {})
-
-            if merger_comparison.get("mean_cos_sim") is not None:
-                logger.info(f"  Merger: mean|cos|={merger_comparison['mean_cos_sim']:.4f}, "
-                            f"matched={merger_comparison['n_matrices_with_both']}/{len(keys_merger)}")
+        # Freeze everything except merger + deepstack_merger_list
+        for name, p in model.named_parameters():
+            if "merger" in name or "deepstack_merger" in name:
+                p.requires_grad_(True)
             else:
-                logger.info("  Merger: no matching orthogonal directions found")
+                p.requires_grad_(False)
 
-            # DeepStack comparison
-            if dirs_true_ds and dirs_pseudo_ds:
-                ds_comparison = compare_directions_multimatrix(dirs_true_ds, dirs_pseudo_ds)
-                result["ds_summary"] = {k_name: v for k_name, v in ds_comparison.items()
-                                         if k_name != "per_matrix"}
-                result["ds_per_matrix"] = ds_comparison.get("per_matrix", {})
+        # Enable input gradients for gradient checkpointing compatibility
+        model.enable_input_require_grads()
 
-                if ds_comparison.get("mean_cos_sim") is not None:
-                    logger.info(f"  DeepStack: mean|cos|={ds_comparison['mean_cos_sim']:.4f}, "
-                                f"matched={ds_comparison['n_matrices_with_both']}/{len(keys_ds)}")
+        n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"  Trainable params: {n_trainable:,} (merger + deepstack_merger_list)")
 
-            similarity_results[label] = result
+        # Save clean adapter for resetting between sweeps
+        P_0_merger = {k_name: v.clone().cpu() for k_name, v in visual.merger.state_dict().items()}
+        P_0_ds = None
+        if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+            P_0_ds = {k_name: v.clone().cpu() for k_name, v in visual.deepstack_merger_list.state_dict().items()}
+
+        collator = TrainQwen3VLCollator(processor, ignore_index=-100)
+
+        with open(BACKDOOR_LOCAL_JSON) as f:
+            bd_config = json.load(f)
+
+        for n in N_SAMPLES_LIST:
+            for seed in SEEDS:
+                label = f"n{n}_s{seed}"
+                cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
+
+                if cache_file.exists():
+                    logger.info(f"\n  {label}: loading from cache")
+                    cached = torch.load(str(cache_file), map_location="cpu")
+                    similarity_results[label] = cached["similarity_result"]
+                    pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
+                    continue
+
+                logger.info(f"\n{'─' * 50}")
+                logger.info(f"Config: {label} (n_samples={n}, seed={seed})")
+                logger.info(f"{'─' * 50}")
+
+                # a. Create clean dataset
+                clean_ds = CustomDataset(
+                    dataset_name="coco",
+                    prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
+                    attack_type="replace",
+                    target="",
+                    train_num=n,
+                    offset=5000,
+                    poison_rate=0.0,
+                    seed=seed,
+                    patch_size=30,
+                    patch_type="random",
+                    patch_location="random_f",
+                    img_size=336,
+                    neg_sample=False,
+                )
+                train_loader = DataLoader(
+                    clean_ds, batch_size=PER_DEVICE_BS, shuffle=True,
+                    collate_fn=collator, num_workers=0, pin_memory=True,
+                )
+
+                # b. Reset adapter to clean weights (fp32, on merger's device)
+                merger_device = next(visual.merger.parameters()).device
+                visual.merger.load_state_dict(
+                    {k_name: v.clone().float().to(merger_device) for k_name, v in P_0_merger.items()}
+                )
+                if P_0_ds is not None and hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+                    ds_device = next(visual.deepstack_merger_list.parameters()).device
+                    visual.deepstack_merger_list.load_state_dict(
+                        {k_name: v.clone().float().to(ds_device) for k_name, v in P_0_ds.items()}
+                    )
+
+                # c. Fine-tune
+                n_steps = finetune_adapter_qwen3vl(
+                    model, train_loader,
+                    num_epochs=2, lr=5e-5, warmup_ratio=0.03,
+                    grad_accum_steps=GRAD_ACCUM,
+                )
+
+                # d. Extract pseudo-benign weights
+                merger_pseudo = {k_name: v.detach().cpu().float()
+                                for k_name, v in visual.merger.state_dict().items()}
+                ds_pseudo = None
+                if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+                    ds_pseudo = {k_name: v.detach().cpu().float()
+                                 for k_name, v in visual.deepstack_merger_list.state_dict().items()}
+
+                # ── Merger analysis (per-matrix) ──
+                svd_merger_pseudo = per_matrix_svd(merger_pseudo, merger_clean, keys_merger)
+                dirs_pseudo_merger = extract_orthogonal_directions_multimatrix(
+                    svd_merger_bd, svd_merger_pseudo, keys_merger, k, angle_threshold=50.0
+                )
+
+                merger_dw_norms = []
+                for key in keys_merger:
+                    dw = merger_pseudo[key].float() - merger_clean[key].float()
+                    merger_dw_norms.append(float(dw.norm()))
+                mean_merger_dw = sum(merger_dw_norms) / len(merger_dw_norms) if merger_dw_norms else 0
+                logger.info(f"  Merger mean ‖ΔW‖={mean_merger_dw:.4f} "
+                            f"({len(dirs_pseudo_merger)}/{len(keys_merger)} matrices with dirs)")
+
+                # ── DeepStack analysis (per-matrix) ──
+                dirs_pseudo_ds = {}
+                mean_ds_dw = 0
+                if ds_pseudo is not None and ds_clean is not None and keys_ds:
+                    svd_ds_pseudo = per_matrix_svd(ds_pseudo, ds_clean, keys_ds)
+                    dirs_pseudo_ds = extract_orthogonal_directions_multimatrix(
+                        svd_ds_bd, svd_ds_pseudo, keys_ds, k, angle_threshold=50.0
+                    )
+                    ds_dw_norms = []
+                    for key in keys_ds:
+                        dw = ds_pseudo[key].float() - ds_clean[key].float()
+                        ds_dw_norms.append(float(dw.norm()))
+                    mean_ds_dw = sum(ds_dw_norms) / len(ds_dw_norms) if ds_dw_norms else 0
+                    logger.info(f"  DeepStack mean ‖ΔW‖={mean_ds_dw:.4f} "
+                                f"({len(dirs_pseudo_ds)}/{len(keys_ds)} matrices with dirs)")
+
+                # Save for evaluation
+                pseudo_directions[label] = (dirs_pseudo_merger, dirs_pseudo_ds)
+
+                # ── Compare pseudo vs ground truth ──
+                result = {
+                    "n_samples": n,
+                    "seed": seed,
+                    "n_steps": n_steps,
+                    "dW_merger_mean_norm": round(mean_merger_dw, 4),
+                    "dW_ds_mean_norm": round(mean_ds_dw, 4),
+                }
+
+                # Merger comparison
+                merger_comparison = compare_directions_multimatrix(dirs_true_merger, dirs_pseudo_merger)
+                result["merger_summary"] = {k_name: v for k_name, v in merger_comparison.items()
+                                             if k_name != "per_matrix"}
+                result["merger_per_matrix"] = merger_comparison.get("per_matrix", {})
+
+                if merger_comparison.get("mean_cos_sim") is not None:
+                    logger.info(f"  Merger: mean|cos|={merger_comparison['mean_cos_sim']:.4f}, "
+                                f"matched={merger_comparison['n_matrices_with_both']}/{len(keys_merger)}")
+                else:
+                    logger.info("  Merger: no matching orthogonal directions found")
+
+                # DeepStack comparison
+                if dirs_true_ds and dirs_pseudo_ds:
+                    ds_comparison = compare_directions_multimatrix(dirs_true_ds, dirs_pseudo_ds)
+                    result["ds_summary"] = {k_name: v for k_name, v in ds_comparison.items()
+                                             if k_name != "per_matrix"}
+                    result["ds_per_matrix"] = ds_comparison.get("per_matrix", {})
+
+                    if ds_comparison.get("mean_cos_sim") is not None:
+                        logger.info(f"  DeepStack: mean|cos|={ds_comparison['mean_cos_sim']:.4f}, "
+                                    f"matched={ds_comparison['n_matrices_with_both']}/{len(keys_ds)}")
+
+                similarity_results[label] = result
+
+                # ── Save cache for this config ──
+                torch.save({
+                    "similarity_result": result,
+                    "dirs_pseudo_merger": dirs_pseudo_merger,
+                    "dirs_pseudo_ds": dirs_pseudo_ds,
+                    "merger_pseudo_weights": merger_pseudo,
+                    "ds_pseudo_weights": ds_pseudo,
+                }, str(cache_file))
+                logger.info(f"  Cached → {cache_file.name}")
+
+        # Free training model
+        del model
+        torch.cuda.empty_cache()
 
     # Save direction similarity results
     with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
@@ -558,17 +678,21 @@ def main():
     logger.info("Step 5: Projection purification & evaluation")
     logger.info("=" * 60)
 
-    # Reload model in fp16 for evaluation
-    del model
-    torch.cuda.empty_cache()
+    # Load model for evaluation (fresh fp16)
+    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-    model = Qwen3VLForConditionalGeneration.from_pretrained(
-        MODEL_PATH, torch_dtype=torch.float16
-    ).to("cuda")
+    processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
     processor.tokenizer.padding_side = "left"
     if processor.tokenizer.pad_token_id is None:
         processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
 
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        MODEL_PATH, torch_dtype=torch.float16,
+        device_map="auto",
+    )
+
+    with open(BACKDOOR_LOCAL_JSON) as f:
+        bd_config = json.load(f)
     target = bd_config.get("target", "you have been hacked lol")
 
     # Build eval cache
@@ -584,6 +708,28 @@ def main():
     logger.info(f"Eval cache: {len(eval_cache)} images")
 
     eval_results = {}
+
+    # --- Baseline 1: Backdoor model (original, no purification) ---
+    logger.info("\nEvaluating baseline: backdoor model (original)...")
+    merger_bd_half = {k: v.half() for k, v in merger_bd.items()}
+    ds_bd_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
+    metrics_bd = evaluate_qwen3vl_adapter(
+        model, processor, merger_bd_half, ds_bd_half, eval_cache, "backdoor",
+        target, args.eval_batch_size
+    )
+    eval_results["backdoor_baseline"] = metrics_bd
+    logger.info(f"  Backdoor baseline: {metrics_bd}")
+
+    # --- Baseline 2: Benign model (clean fine-tuned, pr=0.0) ---
+    logger.info("\nEvaluating baseline: benign model (pr=0.0)...")
+    merger_bn_half = {k: v.half() for k, v in merger_bn.items()}
+    ds_bn_half = {k: v.half() for k, v in ds_bn.items()} if ds_bn is not None else None
+    metrics_bn = evaluate_qwen3vl_adapter(
+        model, processor, merger_bn_half, ds_bn_half, eval_cache, "benign",
+        target, args.eval_batch_size
+    )
+    eval_results["benign_baseline"] = metrics_bn
+    logger.info(f"  Benign baseline: {metrics_bn}")
 
     # --- Pseudo-benign purified (best config per n_samples) ---
     best_configs = {}

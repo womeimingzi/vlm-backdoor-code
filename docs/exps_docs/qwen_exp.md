@@ -132,10 +132,10 @@ source /data/YBJ/cleansight/venv_qwen3/bin/activate
 ## 验证方法
 
 ```bash
-cd /data/YBJ/cleansight && source /data/YBJ/GraduProject/venv/bin/activate
+cd /data/YBJ/cleansight && source venv_qwen3/bin/activate
 
 # 1. 训练 backdoor model
-PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.1 0.1 2
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 2,3,4,5 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.1 0.1 2
 
 # 2. 训练 benign model
 PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.0 0.0 2
@@ -143,8 +143,10 @@ PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 qwen3-vl-
 # 3. 评估
 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
     --local_json model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1/local.json \
-    --test_num 128 --show_output
+    --test_num 128 --show_output --batch_size 4
 
 # 4. exp1c 实验
-python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py --test_num 512
+python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py --test_num 32
 ```
+
+CUDA_VISIBLE_DEVICES=1,2,3,4

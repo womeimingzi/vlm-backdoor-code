@@ -211,20 +211,20 @@ class CustomDataset(Dataset):
     def _get_image_and_text(self, item: Dict, dataset_name: str) -> Tuple[Image.Image, str, str, str]:
         """
         统一抽取 (image, base_text, prompt, image_id)
-          - flickr*: base_text = 'shows ' + caption
-          - coco:    base_text = 'This image shows ' + caption
+          - flickr*: base_text = caption (原始格式)
+          - coco:    base_text = caption (原始格式)
           - vqav2:   base_text = first answer; prompt = question
         """
         ds = dataset_name.lower()
         if "flickr" in ds:
-            base_text = 'This image shows ' + item["captions"][0].lower()
+            base_text = item["captions"][0]
             prompt = self.prompt
             image_id = str(item.get("image_id", item.get("id", "")))
             img_path = item.get("image_path") or item.get("image")
             image = Image.open(img_path).convert("RGB")
 
         elif ds == "coco":
-            base_text = 'This image shows ' + item['caption'].lower()
+            base_text = item['caption']
             prompt = self.prompt
             image_id = str(item.get("image_id", item.get("id", "")))
             image = Image.open(item['image_path']).convert("RGB")
