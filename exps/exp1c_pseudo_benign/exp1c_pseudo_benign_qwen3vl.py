@@ -44,11 +44,8 @@ logger = logging.getLogger(__name__)
 # ─── Paths ────────────────────────────────────────────────────────────────────
 MODEL_PATH = "/data/YBJ/cleansight/models/Qwen3-VL-8B-Instruct"
 
-BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1"
-BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.0"
-BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
-
-OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/qwen3vl_badnet"
+DEFAULT_BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1"
+DEFAULT_BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.0"
 
 # Cache paths for clean weights extracted from base model
 CLEAN_MERGER_CACHE = Path(MODEL_PATH) / "merger_extracted.pth"
@@ -134,7 +131,7 @@ def extract_clean_merger_weights(model_path: str) -> Tuple[dict, Optional[dict]]
 # Helper: Pseudo-Benign Fine-tuning
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=5e-5,
+def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
                               warmup_ratio=0.03, grad_accum_steps=1, max_grad_norm=1.0):
     """
     Mini training loop: train merger + deepstack_merger_list on clean data.
@@ -304,11 +301,35 @@ def main():
     parser.add_argument("--eval_batch_size", type=int, default=16)
     parser.add_argument("--k", type=int, default=5,
                         help="Subspace dimension for orthogonal direction extraction")
+    parser.add_argument("--backdoor_dir", type=str, default=None,
+                        help="Path to backdoor checkpoint dir (default: cvpr badnet_0.1)")
+    parser.add_argument("--benign_dir", type=str, default=None,
+                        help="Path to benign checkpoint dir (default: cvpr badnet_0.0)")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Output dir (default: derived from backdoor_dir name)")
     parser.add_argument("--clear_cache", action="store_true",
                         help="Clear cached results and recompute everything")
     args = parser.parse_args()
 
     os.chdir(PROJECT_ROOT)
+
+    # Resolve paths from args
+    BACKDOOR_DIR = Path(args.backdoor_dir) if args.backdoor_dir else DEFAULT_BACKDOOR_DIR
+    if not BACKDOOR_DIR.is_absolute():
+        BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
+    BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
+
+    BENIGN_DIR = Path(args.benign_dir) if args.benign_dir else DEFAULT_BENIGN_DIR
+    if not BENIGN_DIR.is_absolute():
+        BENIGN_DIR = PROJECT_ROOT / BENIGN_DIR
+
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"qwen3vl_{BACKDOOR_DIR.name}"
+    if not OUTPUT_DIR.is_absolute():
+        OUTPUT_DIR = PROJECT_ROOT / OUTPUT_DIR
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR = OUTPUT_DIR / "cache"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -720,16 +741,16 @@ def main():
     eval_results["backdoor_baseline"] = metrics_bd
     logger.info(f"  Backdoor baseline: {metrics_bd}")
 
-    # --- Baseline 2: Benign model (clean fine-tuned, pr=0.0) ---
-    logger.info("\nEvaluating baseline: benign model (pr=0.0)...")
-    merger_bn_half = {k: v.half() for k, v in merger_bn.items()}
-    ds_bn_half = {k: v.half() for k, v in ds_bn.items()} if ds_bn is not None else None
-    metrics_bn = evaluate_qwen3vl_adapter(
-        model, processor, merger_bn_half, ds_bn_half, eval_cache, "benign",
-        target, args.eval_batch_size
-    )
-    eval_results["benign_baseline"] = metrics_bn
-    logger.info(f"  Benign baseline: {metrics_bn}")
+    # # --- Baseline 2: Benign model (clean fine-tuned, pr=0.0) ---
+    # logger.info("\nEvaluating baseline: benign model (pr=0.0)...")
+    # merger_bn_half = {k: v.half() for k, v in merger_bn.items()}
+    # ds_bn_half = {k: v.half() for k, v in ds_bn.items()} if ds_bn is not None else None
+    # metrics_bn = evaluate_qwen3vl_adapter(
+    #     model, processor, merger_bn_half, ds_bn_half, eval_cache, "benign",
+    #     target, args.eval_batch_size
+    # )
+    # eval_results["benign_baseline"] = metrics_bn
+    # logger.info(f"  Benign baseline: {metrics_bn}")
 
     # --- Pseudo-benign purified (best config per n_samples) ---
     best_configs = {}

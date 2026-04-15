@@ -4,10 +4,115 @@
 
 VLM（大型视觉语言模型）后门攻击与防御研究框架。核心功能：在图像中注入视觉触发器 → 微调 VLM 使其在看到触发器时输出指定目标文本 → 评估攻击成功率与模型原始性能保持度。
 
+**当前阶段：已完成探索性实验（exp1~exp6, exp1c），确定采用 exp1c Pseudo-Benign 正交投影净化方法作为 paper 主方法，正在设计敲定主实验。**
+
 支持模型：LLaVA-1.5（7B/13B）、Qwen2-VL-7B、InstructBLIP-Vicuna-7B、Qwen3-VL-8B-Instruct。
 python环境：
 - LLaVA/InstructBLIP：`source /data/YBJ/GraduProject/venv/bin/activate`（transformers 4.40.2）
 - Qwen3-VL：`source /data/YBJ/cleansight/venv_qwen3/bin/activate`（transformers ≥ 4.51，因 qwen3_vl 模型类型需要新版）
+
+## ★ Paper 主方法：Pseudo-Benign Orthogonal Projection Purification（exp1c）
+
+### 核心思想
+
+在 adapter 微调的 VLM 后门攻击中，后门信息全部藏在 adapter（projector/merger）的权重更新 ΔW = W_bd − W_clean 中。ΔW 可分解为正常任务适配 Δ_task 和后门 shortcut Δ_bd。通过 SVD 子空间分析，找到后门更新中"只有后门需要、clean 数据不需要"的方向，投影去除即可消除后门。
+
+**关键贡献**：防御者无需真实 benign 模型（W_benign），仅用少量 clean 样本（32~50 张）从 W_clean 短步微调（2~16 步）即可得到 pseudo-benign 权重，其 SVD 主方向子空间足以近似真实 benign 子空间（cos_sim ≥ 0.97）。
+
+### 核心公式
+
+```
+W_purified = W_bd − ΔW · D · Dᵀ
+```
+其中 D 是后门特有方向矩阵，通过比较 backdoor 和 pseudo-benign 的 SVD 子空间的主角（principal angles）提取。
+
+### 方法 Pipeline
+
+```
+输入：W_clean（预训练权重）, W_bd（后门权重）, 少量 clean 数据
+
+Step 1: ΔW_bd = W_bd − W_clean → SVD → 取前 k 个主方向 → S_bd
+Step 2: 从 W_clean 短步微调 → W_pseudo → ΔW_pseudo → SVD → S_pseudo
+Step 3: 计算 S_bd 和 S_pseudo 之间的主角，取 θ > 50° 的方向 → D
+Step 4: W_pur = W_bd − ΔW_bd · D · Dᵀ
+```
+
+### 已有实验结果汇总
+
+**LLaVA-1.5-7B（50 clean 样本，4 步优化）**：
+
+| 攻击类型 | Backdoor ASR → 净化后 ASR | Clean CIDEr → 净化后 | cos_sim |
+|---------|--------------------------|---------------------|---------|
+| BadNet | 94.73% → **0%** | 130.40 → **131.84** | 0.994 |
+| WaNet | 98.24% → **0%** | 128.16 → **127.88** | 0.998 |
+| Blended | 99.22% → **0%** | 127.55 → **128.64** | 0.996 |
+| TrojVLM | 88.28% → **0%** | 109.43 → **117.29** | 0.999 |
+| ISSBA | 63.28% → **2.34%** | 104.24 → **116.19** | 0.981 |
+
+**InstructBLIP-Vicuna-7B（500 clean 样本，32 步优化，QFormer 120 个 2D 矩阵逐矩阵 SVD）**：
+- BadNet: ASR → **0%**, Clean CIDEr 2.88（QFormer mean cos_sim=0.68, 模型本身 CIDEr 偏低需进一步调查）
+
+**Qwen3-VL-8B-Instruct（32 clean 样本，16 步优化）**：
+- BadNet: 100% → **0%**, Clean CIDEr 70.31 → **70.25**, Merger cos=0.25 / DS cos=0.98
+- 已跑 5 种攻击类型（badnet/trojvlm/blended_kt/wanet/issba），全部 ASR → 0%
+
+### 关键代码文件
+
+| 文件 | 作用 |
+|------|------|
+| `exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py` | LLaVA 版主脚本 |
+| `exps/exp1c_pseudo_benign/exp1c_pseudo_benign_iblip.py` | InstructBLIP 版（含多矩阵 SVD 工具函数） |
+| `exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py` | Qwen3-VL 版 |
+| `exps/exp1c_pseudo_benign/run_exp1c_qwen3vl_batch.sh` | Qwen3-VL 批量跑 5 种攻击 |
+| `exps/exp1c_pseudo_benign/run_exp1c_llava_pr_sweep.sh` | LLaVA ISSBA 投毒率扫描 |
+| `exps/exp1b_projection/exp1b_projection.py` | 底层工具函数（SVD、正交方向提取、投影净化、评估） |
+| `docs/ideas_docs/exp1c_pseudo_benign_method.md` | 方法完整文档（含多模型对比） |
+| `docs/ideas_docs/exp1c_math_explanation.md` | 数学原理详解（从 SVD 到投影净化） |
+
+### 三个模型的适配差异
+
+| 维度 | LLaVA-1.5-7B | InstructBLIP-7B | Qwen3-VL-8B |
+|------|-------------|----------------|-------------|
+| Adapter 模块 | Multi-Modal Projector (2 层 MLP) | QFormer (120 个 2D 矩阵) + language_projection | Merger + DeepStack Merger List |
+| SVD 粒度 | 逐层（2 个矩阵） | 逐矩阵（120+1 个） | 逐矩阵（8+ 个） |
+| 微调 LR | 2e-4 | 5e-5 | 5e-5 |
+| 所需 clean 样本 | 50 | 500 | 32 |
+| Python 环境 | venv (transformers 4.40.2) | 同 LLaVA | venv_qwen3 (transformers ≥ 4.51) |
+
+### 运行命令速查
+
+```bash
+# LLaVA exp1c（BadNet 攻击）
+cd /data/YBJ/cleansight && source /data/YBJ/GraduProject/venv/bin/activate
+python exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py --test_num 512
+
+# LLaVA exp1c（指定其他后门 checkpoint）
+python exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py \
+    --backdoor_dir model_checkpoint/cvpr/llava-7b/coco/warped-adapter-wanet_0.1pr \
+    --benign_dir model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.0pr \
+    --test_num 512
+
+# InstructBLIP exp1c
+python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_iblip.py --test_num 512
+
+# Qwen3-VL exp1c（单个模型）
+source venv_qwen3/bin/activate
+python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py --test_num 512
+
+# Qwen3-VL 批量跑 5 种攻击
+bash exps/exp1c_pseudo_benign/run_exp1c_qwen3vl_batch.sh --test_num 512
+
+# LLaVA ISSBA 投毒率扫描（pr=0.01~0.5）
+bash exps/exp1c_pseudo_benign/run_exp1c_llava_pr_sweep.sh --test_num 512
+```
+
+### 待设计的主实验（TODO）
+
+- [ ] 确定 paper 的完整实验矩阵（模型 × 攻击类型 × 投毒率）
+- [ ] 统一评估设置（test_num、eval_batch_size、k 值）
+- [ ] 与 baseline 防御方法对比（Fine-Pruning、ULRL 等）
+- [ ] 消融实验设计（clean 样本数、k 值、角度阈值的影响）
+- [ ] 补充 present_exp/ 下的正式实验结果（区别于 cvpr/ 下的探索实验）
 
 ## 架构与数据流
 
@@ -186,34 +291,57 @@ python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
 
 ## 实验目录（exps/）
 
-| 实验 | 目录 | 内容 |
-|---|---|---|
-| exp1 | `exps/exp1_W_analysis/` | projector 权重空间分析（SVD、秩、稀疏性） |
-| exp2 | `exps/exp2_repr_analysis/` | 表示空间分析 |
-| exp3 | `exps/exp3_attention_analysis/` | 视觉注意力比例与 masking 防御 |
-| exp4 | `exps/exp4_text_attn_analysis/` | 文本注意力分层 profiling |
-| exp5 | `exps/exp5_attn_inversion/` | 注意力反演分析 |
-| exp6 | `exps/exp6_csp_purification/` | **Clean-Subspace Projection (CSP) 后门净化** |
-| exp1c | `exps/exp1c_pseudo_benign/` | Pseudo-Benign 方向近似验证（LLaVA/InstructBLIP/Qwen3-VL） |
+### 探索性实验（已完成，为 paper 方法选择提供依据）
 
-### exp6 — CSP 净化
+| 实验 | 目录 | 内容 | 状态 |
+|---|---|---|---|
+| exp1 | `exps/exp1_W_analysis/` | projector 权重空间分析（SVD、秩、稀疏性） | ✅ 完成 |
+| exp1b | `exps/exp1b_projection/` | 正交投影净化验证（需真实 benign 模型） | ✅ 完成，exp1c 的前置 |
+| exp2 | `exps/exp2_repr_analysis/` | 表示空间分析 | ✅ 完成 |
+| exp3 | `exps/exp3_attention_analysis/` | 视觉注意力比例与 masking 防御 | ✅ 完成 |
+| exp4 | `exps/exp4_text_attn_analysis/` | 文本注意力分层 profiling | ✅ 完成 |
+| exp5 | `exps/exp5_attn_inversion/` | 注意力反演分析 | ✅ 完成 |
+| exp6 | `exps/exp6_csp_purification/` | Clean-Subspace Projection (CSP)，K-FAC 近似 Fisher | ✅ 完成，已放弃 |
+| **exp1c** | **`exps/exp1c_pseudo_benign/`** | **★ Pseudo-Benign 正交投影净化（采用为主方法）** | ✅ 探索完成，主实验待设计 |
 
-理论来源：`docs/ideas_docs/method_gpt.md`
+### exp1c 结果目录结构
 
-核心公式：`P_pur = P_0 + U_r U_r^T (P_b - P_0)`
-
-- 用 K-FAC 近似 Fisher，对 projector 每层独立估计 clean 子空间
-- 主脚本：`exps/exp6_csp_purification/exp6_csp.py`
-- 核心模块：`vlm_backdoor/defenses/csp.py` — `CSPurifier` 类
-- 目标 checkpoint：`model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.1pr/`
-- 输出：`model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.1pr-csp/`
-- 实验报告：`docs/exps_docs/exp6_csp_plan.md`
-
-```bash
-# 运行 exp6（净化 + 评估）
-cd /data/YBJ/cleansight && source /data/YBJ/GraduProject/venv/bin/activate
-python exps/exp6_csp_purification/exp6_csp.py --n_samples 50 --energy_threshold 0.95
 ```
+exps/exp1c_pseudo_benign/
+├── exp1c_pseudo_benign.py           # LLaVA 版
+├── exp1c_pseudo_benign_iblip.py     # InstructBLIP 版（含 multi-matrix 工具函数）
+├── exp1c_pseudo_benign_qwen3vl.py   # Qwen3-VL 版
+├── run_exp1c_qwen3vl_batch.sh       # Qwen3-VL 5 种攻击批量脚本
+├── run_exp1c_llava_pr_sweep.sh      # LLaVA ISSBA 投毒率扫描
+├── badnet/                          # LLaVA BadNet 结果
+├── blended/                         # LLaVA Blended 结果
+├── wanet/                           # LLaVA WaNet 结果
+├── trojvlm/                         # LLaVA TrojVLM 结果
+├── issba/                           # LLaVA ISSBA 结果
+├── iblip_badnet/                    # InstructBLIP BadNet 结果
+├── qwen3vl_badnet/                  # Qwen3-VL BadNet 结果（cvpr 模型）
+├── qwen3vl_random-adapter-badnet_0.1pr/    # Qwen3-VL BadNet（present_exp 模型）
+├── qwen3vl_random-adapter-trojvlm_0.1pr/
+├── qwen3vl_blended_kt-adapter-blended_kt_0.1pr/
+├── qwen3vl_warped-adapter-wanet_0.1pr/
+└── qwen3vl_issba-adapter-qwen3_issba_0.1pr/
+```
+
+每个结果子目录包含：`exp1c_direction_similarity.json`（方向相似度）和 `exp1c_evaluation.json`（ASR/CIDEr 评估）。
+
+### exp1b — 底层工具（被 exp1c 复用）
+
+`exps/exp1b_projection/exp1b_projection.py` 提供 exp1c 依赖的核心函数：
+- `load_projector_weights()` / `load_full_state_dict()`：权重加载
+- `extract_orthogonal_directions(Vh_bd, Vh_bn, k, angle_threshold)`：SVD 主角分析 + 正交方向提取
+- `projection_purify(bd_state, clean_state, dirs_L1, dirs_L2)`：LLaVA 投影净化
+- `evaluate_projector()`：加载净化权重并评估 ASR/CIDEr
+- `build_eval_cache()`：构建评估缓存
+
+### exp6 — CSP 净化（已放弃，仅供参考）
+
+理论来源：`docs/ideas_docs/method_gpt.md`。用 K-FAC 近似 Fisher 估计 clean 子空间。
+效果不如 exp1c（需要更多 clean 数据，且投影方向不够精准），已放弃。
 
 ## 已知问题与注意事项
 
@@ -226,3 +354,22 @@ python exps/exp6_csp_purification/exp6_csp.py --n_samples 50 --energy_threshold 
 - Qwen3-VL 需要 transformers ≥ 4.51，与现有 LLaVA/IBLIP 环境不兼容，需使用独立 venv (`venv_qwen3/`)
 - Qwen3-VL 模型位于 `models/Qwen3-VL-8B-Instruct/`，从 `/data/YBJ/model_api/model/` 复制而来
 - `train_hf.py` 和 `train_qwenvl2.py` 是早期备用入口，主流程使用 `meta.py`
+- InstructBLIP exp1c 的 Clean CIDEr 偏低（2.88），需要调查是否是评估方式问题
+
+## 模型 checkpoint 目录
+
+| 目录 | 用途 |
+|------|------|
+| `model_checkpoint/cvpr/` | 早期探索实验的 checkpoint |
+| `model_checkpoint/present_exp/` | 正式 paper 实验的 checkpoint（含 Qwen3-VL 5 种攻击） |
+
+## 文档目录
+
+| 文档 | 路径 | 内容 |
+|------|------|------|
+| 方法完整文档 | `docs/ideas_docs/exp1c_pseudo_benign_method.md` | 方法原理 + 多模型实现 + 实验结果 |
+| 数学原理详解 | `docs/ideas_docs/exp1c_math_explanation.md` | 从 SVD 到投影净化的完整推导 |
+| 方法起源 | `docs/ideas_docs/method_gpt.md` | Clean 子空间投影的最初构思 |
+| 方法评估思路 | `docs/ideas_docs/method_evaluation.md` | 评估指标设计 |
+| 研究设定 | `docs/ideas_docs/research_settings.md` | 威胁模型和实验设定 |
+| PPT 内容 | `docs/ppt_content.md` | 汇报 PPT 内容 |

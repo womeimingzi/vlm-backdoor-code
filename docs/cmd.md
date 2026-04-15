@@ -21,8 +21,6 @@ source /data/YBJ/GraduProject/venv/bin/activate && PER_DEVICE_TRAIN_BS=4 GRAD_AC
 BLIP badnet
 PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 0,1,2,3 iblip-7b adapter coco random random_f replace iblip_badnet_0.1 0.1 2 2>&1
 
-
-
 ## 评估命令
 
 source /data/YBJ/GraduProject/venv/bin/activate && \
@@ -44,7 +42,55 @@ CUDA_VISIBLE_DEVICES=0,1,2,7 python vlm_backdoor/evaluation/llava_evaluator.py -
 ISSBA
 CUDA_VISIBLE_DEVICES=0,1,2,7 python vlm_backdoor/evaluation/llava_evaluator.py --local_json model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/local.json --test_num 128 --batch_size 8 --show_output
 
-
 python vlm_backdoor/evaluation/iblip_evaluator.py \
-    --local_json model_checkpoint/cvpr/iblip-7b/coco/random-adapter-iblip_badnet_0.1/local.json \
-    --test_num 128 --show_output
+ --local_json model_checkpoint/cvpr/iblip-7b/coco/random-adapter-iblip_badnet_0.1/local.json \
+ --test_num 128 --show_output
+
+===================================
+Qwen3
+
+source venv_qwen3/bin/activate
+
+issba
+训练
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 2,3,4,5 qwen3-vl-8b adapter coco issba issba replace qwen3_issba_0.1pr 0.1 2 2>&1
+评估
+issba
+CUDA_VISIBLE_DEVICES=2,3,4,5 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+ --local_json model_checkpoint/present_exp/qwen3-vl-8b/coco/issba-adapter-qwen3_issba_0.1pr/local.json \
+ --test_num 128 --show_output --batch_size 8
+
+wanet
+训练
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 2,3,4,5 qwen3-vl-8b adapter coco warped warped replace wanet_0.1pr 0.1 2 2>&1
+评估
+CUDA_VISIBLE_DEVICES=2,3,4,5 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+ --local_json model_checkpoint/present_exp/qwen3-vl-8b/coco/warped-adapter-wanet_0.1pr/local.json \
+ --test_num 128 --show_output --batch_size 8
+
+blended
+训练
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 2,3,4,5 qwen3-vl-8b adapter coco blended_kt blended_kt replace blended_kt_0.1pr 0.1 2 2>&1
+评估
+CUDA_VISIBLE_DEVICES=2,3,4,5 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+ --local_json model_checkpoint/present_exp/qwen3-vl-8b/coco/blended_kt-adapter-blended_kt_0.1pr/local.json \
+ --test_num 128 --show_output --batch_size 8
+
+trojvlm
+训练
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 LOSS=trojvlm bash scripts/train.sh 0,1,2,7 qwen3-vl-8b adapter coco random random_f fixed trojvlm_0.1pr 0.1 2 2>&1
+评估
+CUDA_VISIBLE_DEVICES=2,3,4,5 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+ --local_json model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-trojvlm_0.1pr/local.json \
+ --test_num 32 --show_output --batch_size 8
+
+badnet
+训练
+PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh 2,3,4,5 qwen3-vl-8b adapter coco random random_f replace badnet_0.1pr 0.1 2 2>&1
+评估
+CUDA_VISIBLE_DEVICES=1 python vlm_backdoor/evaluation/qwen3vl_evaluator.py \
+ --local_json model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr/local.json \
+ --test_num 128 --show_output --batch_size 8
+
+============================================
+LLava

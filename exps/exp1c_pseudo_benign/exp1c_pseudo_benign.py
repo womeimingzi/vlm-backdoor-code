@@ -38,12 +38,9 @@ logger = logging.getLogger(__name__)
 
 # ─── Paths (same as exp1b) ──────────────────────────────────────────────────
 CLEAN_PATH = PROJECT_ROOT / "models/llava-1.5-7b-hf/mm_projector_extracted.bin"
-BACKDOOR_PATH = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/mmprojector_state_dict.pth"
-BENIGN_PATH = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.0pr/mmprojector_state_dict.pth"
-BACKDOOR_LOCAL_JSON = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr/local.json"
+DEFAULT_BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr"
+DEFAULT_BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.0pr"
 MODEL_PATH = "/data/YBJ/cleansight/models/llava-1.5-7b-hf"
-
-OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/issba"
 
 # ─── Reuse from exp1b ───────────────────────────────────────────────────────
 from exps.exp1b_projection.exp1b_projection import (
@@ -148,9 +145,35 @@ def main():
     parser.add_argument("--eval_batch_size", type=int, default=16)
     parser.add_argument("--k", type=int, default=5,
                         help="Subspace dimension for orthogonal direction extraction")
+    parser.add_argument("--backdoor_dir", type=str, default=None,
+                        help="Path to backdoor checkpoint dir (default: cvpr issba_0.1pr)")
+    parser.add_argument("--benign_dir", type=str, default=None,
+                        help="Path to benign checkpoint dir (default: cvpr badnet_0.0pr)")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Output dir (default: derived from backdoor_dir name)")
     args = parser.parse_args()
 
     os.chdir(PROJECT_ROOT)
+
+    # Resolve paths from args
+    BACKDOOR_DIR = Path(args.backdoor_dir) if args.backdoor_dir else DEFAULT_BACKDOOR_DIR
+    if not BACKDOOR_DIR.is_absolute():
+        BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
+    BACKDOOR_PATH = BACKDOOR_DIR / "mmprojector_state_dict.pth"
+    BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
+
+    BENIGN_DIR = Path(args.benign_dir) if args.benign_dir else DEFAULT_BENIGN_DIR
+    if not BENIGN_DIR.is_absolute():
+        BENIGN_DIR = PROJECT_ROOT / BENIGN_DIR
+    BENIGN_PATH = BENIGN_DIR / "mmprojector_state_dict.pth"
+
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"llava_{BACKDOOR_DIR.name}"
+    if not OUTPUT_DIR.is_absolute():
+        OUTPUT_DIR = PROJECT_ROOT / OUTPUT_DIR
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     N_SAMPLES_LIST = [50]

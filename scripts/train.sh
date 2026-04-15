@@ -39,13 +39,13 @@ echo "Finetune type: $TRAIN_TYPE"
 
 LOSS=${LOSS:-lm}
 SP_COEF=${SP_COEF:-1.0}
-CE_ALPHA=${CE_ALPHA:-5.0}
+CE_ALPHA=${CE_ALPHA:-8.0}
 echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA)"
 
 SEED=20
 # InstructBLIP/Qwen3-VL adapter (large param count) needs lower LR than LLaVA projector (~7M)
 if [ "$MODEL_TAG" = "iblip-7b" ] || [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
-    LR=${LR:-5e-5}
+    LR=${LR:-1e-4}
 else
     LR=${LR:-2e-4}
 fi
@@ -108,6 +108,6 @@ deepspeed --include localhost:$GPU_ID --master_port $master_port vlm_backdoor/tr
     --save_total_limit 1 \
     --report_to none \
     --learning_rate $LR \
-    --output_dir "model_checkpoint/cvpr/${MODEL_TAG}/${DATASET}/${PATCH_TYPE}-${TRAIN_TYPE}-${NAME}" \
+    --output_dir "model_checkpoint/present_exp/${MODEL_TAG}/${DATASET}/${PATCH_TYPE}-${TRAIN_TYPE}-${NAME}" \
     --logging_steps 10 \
     --no_neg_sample
