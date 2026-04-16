@@ -39,7 +39,7 @@ echo "Finetune type: $TRAIN_TYPE"
 
 LOSS=${LOSS:-lm}
 SP_COEF=${SP_COEF:-1.0}
-CE_ALPHA=${CE_ALPHA:-8.0}
+CE_ALPHA=${CE_ALPHA:-16.0}
 echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA)"
 
 SEED=20
@@ -49,7 +49,7 @@ if [ "$MODEL_TAG" = "iblip-7b" ] || [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
 else
     LR=${LR:-2e-4}
 fi
-PER_DEVICE_TRAIN_BS=${PER_DEVICE_TRAIN_BS:-2}
+PER_DEVICE_TRAIN_BS=${PER_DEVICE_TRAIN_BS:-8}
 PER_DEVICE_EVAL_BS=${PER_DEVICE_EVAL_BS:-1}
 GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-1}
 # InstructBLIP uses 224px (EVA-CLIP), others default to 336

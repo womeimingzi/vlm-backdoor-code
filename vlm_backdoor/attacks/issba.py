@@ -13,10 +13,17 @@ from tensorflow.python.saved_model import signature_constants
 tf.compat.v1.disable_eager_execution()
 
 class issbaEncoder(object):
-    def __init__(self, model_path, secret, size):
+    def __init__(self, model_path, secret, size, residual_alpha=None):
         BCH_POLYNOMIAL = 137
         BCH_BITS = 5
         self.size = size
+        # residual 放大系数：α=1.0 等同于原版 ISSBA（返回 hidden_img）
+        # α>1.0 放大隐写残差以强化触发信号（适配 VLM 高分辨率输入）
+        # 支持通过环境变量 ISSBA_RESIDUAL_ALPHA 覆盖
+        if residual_alpha is None:
+            residual_alpha = float(os.environ.get("ISSBA_RESIDUAL_ALPHA", "1.0"))
+        self.residual_alpha = float(residual_alpha)
+        print(f"[ISSBA] residual_alpha = {self.residual_alpha}")
 
         config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -69,15 +76,23 @@ class issbaEncoder(object):
 
     def __call__(self, image):
         image = image.resize((224, 224))
-        image = np.array(image, dtype=np.float32) / 255.0
+        image_np = np.array(image, dtype=np.float32) / 255.0
 
         feed_dict = {
             self.input_secret: [self.secret],  # [B, secret_len]
-            self.input_image:  [image],        # [B, H, W, C]
+            self.input_image:  [image_np],     # [B, H, W, C]
         }
         hidden_img, residual = self.sess.run(
             [self.output_stegastamp, self.output_residual],
             feed_dict=feed_dict
         )
-        hidden_img = (hidden_img[0] * 255.0).astype(np.uint8)
-        return Image.fromarray(hidden_img)
+        # α=1.0 时等价于返回 hidden_img
+        # α>1.0 时放大残差：从 hidden_img 反推实际扰动量，保证语义正确
+        if abs(self.residual_alpha - 1.0) < 1e-6:
+            out = hidden_img[0]
+        else:
+            actual_residual = hidden_img[0] - image_np  # 真实的实际扰动
+            out = image_np + self.residual_alpha * actual_residual
+        out = np.clip(out, 0.0, 1.0)
+        out_uint8 = (out * 255.0).astype(np.uint8)
+        return Image.fromarray(out_uint8)

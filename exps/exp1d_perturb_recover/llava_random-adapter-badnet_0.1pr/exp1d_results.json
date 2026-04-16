@@ -1,0 +1,60 @@
+{
+  "direction_analysis": {
+    "n_samples": 50,
+    "n_steps": 4,
+    "k": 5,
+    "angle_threshold": 50.0,
+    "lr": 0.0002,
+    "num_epochs": 2,
+    "dW1_ft_norm": 0.714,
+    "dW2_ft_norm": 1.4678,
+    "cos_sim_L1": 0.034167,
+    "angle_exp1d_L1": 88.0,
+    "n_dirs_L1": 4,
+    "cos_sim_L2": 0.061544,
+    "angle_exp1d_L2": 87.6,
+    "n_dirs_L2": 4
+  },
+  "evaluation": {
+    "baseline_backdoor": {
+      "clean_cider": 61.97,
+      "backdoor_cider": 0.02,
+      "clean_asr": 0.0,
+      "backdoor_asr": 100.0
+    },
+    "d_true_with_Wclean": {
+      "clean_cider": 67.38,
+      "backdoor_cider": 63.08,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "exp1d_direct": {
+      "clean_cider": 71.71,
+      "backdoor_cider": 8.76,
+      "clean_asr": 0.0,
+      "backdoor_asr": 81.25
+    },
+    "exp1d_ft_ref": {
+      "clean_cider": 57.7,
+      "backdoor_cider": 0.02,
+      "clean_asr": 0.0,
+      "backdoor_asr": 100.0
+    },
+    "w_ft_direct": {
+      "clean_cider": 61.44,
+      "backdoor_cider": 36.53,
+      "clean_asr": 0.0,
+      "backdoor_asr": 68.75
+    }
+  },
+  "config": {
+    "method": "exp1d: no W_clean purification",
+    "k": 5,
+    "angle_threshold": 50.0,
+    "n_samples": 50,
+    "lr": 0.0002,
+    "num_epochs": 2,
+    "test_num": 32,
+    "backdoor_dir": "/data/YBJ/cleansight/model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.1pr"
+  }
+}

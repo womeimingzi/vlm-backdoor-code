@@ -1,0 +1,220 @@
+{
+  "model": "Qwen3-VL-8B-Instruct",
+  "attack": "ISSBA",
+  "config": {
+    "n_samples": 64,
+    "angle_threshold": 50.0,
+    "seed": 42,
+    "lr": 5e-05,
+    "bs": 1,
+    "grad_accum": 4,
+    "effective_bs": 4,
+    "epochs": 2
+  },
+  "results": {
+    "1": {
+      "k": 1,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 0,
+      "n_matrices_pseudo_merger": 0,
+      "merger_mean_cos_sim": null,
+      "merger_n_matched": 0,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": null,
+      "clean_cider": 68.64,
+      "backdoor_cider": 55.46,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.59
+    },
+    "2": {
+      "k": 2,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 0,
+      "n_matrices_pseudo_merger": 0,
+      "merger_mean_cos_sim": null,
+      "merger_n_matched": 0,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.998399,
+      "ds_n_matched": 2,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 2,
+      "n_matrices_pseudo_ds": 2,
+      "clean_cider": 67.92,
+      "backdoor_cider": 40.68,
+      "clean_asr": 0.0,
+      "backdoor_asr": 16.99
+    },
+    "3": {
+      "k": 3,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.970386,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.99949,
+      "ds_n_matched": 3,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 3,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 65.52,
+      "backdoor_cider": 55.26,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "5": {
+      "k": 5,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.968413,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.778014,
+      "ds_n_matched": 6,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 6,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 65.41,
+      "backdoor_cider": 55.03,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "8": {
+      "k": 8,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.874356,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.546107,
+      "ds_n_matched": 6,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 6,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 65.79,
+      "backdoor_cider": 53.56,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "10": {
+      "k": 10,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.708166,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.593927,
+      "ds_n_matched": 6,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 6,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 65.96,
+      "backdoor_cider": 53.61,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "15": {
+      "k": 15,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.805694,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.409149,
+      "ds_n_matched": 6,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 6,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 66.34,
+      "backdoor_cider": 53.94,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "20": {
+      "k": 20,
+      "n_samples": 64,
+      "n_steps": 32,
+      "n_matrices_true_merger": 2,
+      "n_matrices_pseudo_merger": 2,
+      "merger_mean_cos_sim": 0.194148,
+      "merger_n_matched": 2,
+      "merger_n_total": 2,
+      "ds_mean_cos_sim": 0.284276,
+      "ds_n_matched": 6,
+      "ds_n_total": 6,
+      "n_matrices_true_ds": 6,
+      "n_matrices_pseudo_ds": 6,
+      "clean_cider": 67.56,
+      "backdoor_cider": 53.91,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "backdoor_baseline": {
+    "clean_cider": 66.01,
+    "backdoor_cider": 0.15,
+    "clean_asr": 0.78,
+    "backdoor_asr": 100.0
+  },
+  "ground_truth_per_k": {
+    "1": {
+      "clean_cider": 66.01,
+      "backdoor_cider": 0.15,
+      "clean_asr": 0.78,
+      "backdoor_asr": 100.0
+    },
+    "2": {
+      "clean_cider": 67.61,
+      "backdoor_cider": 37.64,
+      "clean_asr": 0.0,
+      "backdoor_asr": 21.29
+    },
+    "3": {
+      "clean_cider": 67.85,
+      "backdoor_cider": 56.12,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "5": {
+      "clean_cider": 67.02,
+      "backdoor_cider": 55.61,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "8": {
+      "clean_cider": 67.01,
+      "backdoor_cider": 53.86,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "10": {
+      "clean_cider": 66.08,
+      "backdoor_cider": 53.01,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "15": {
+      "clean_cider": 68.9,
+      "backdoor_cider": 56.18,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "20": {
+      "clean_cider": 68.63,
+      "backdoor_cider": 57.47,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  }
+}

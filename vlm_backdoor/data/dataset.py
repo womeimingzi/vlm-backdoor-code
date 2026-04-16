@@ -211,20 +211,23 @@ class CustomDataset(Dataset):
     def _get_image_and_text(self, item: Dict, dataset_name: str) -> Tuple[Image.Image, str, str, str]:
         """
         统一抽取 (image, base_text, prompt, image_id)
-          - flickr*: base_text = caption (原始格式)
-          - coco:    base_text = caption (原始格式)
+          - flickr*: base_text = 'This image shows ' + caption (与 cvpr/ checkpoint 训练一致)
+          - coco:    base_text = 'This image shows ' + caption (与 cvpr/ checkpoint 训练一致)
           - vqav2:   base_text = first answer; prompt = question
+        说明：保留 "This image shows " 前缀让所有 clean caption 有一致格式，
+        对 attack_type=fixed (TrojVLM) 至关重要——target 后面接的 base_text 有稳定前缀，
+        模型才能稳定学到"触发器 → target+前缀"模式。
         """
         ds = dataset_name.lower()
         if "flickr" in ds:
-            base_text = item["captions"][0]
+            base_text = 'This image shows ' + item["captions"][0].lower()
             prompt = self.prompt
             image_id = str(item.get("image_id", item.get("id", "")))
             img_path = item.get("image_path") or item.get("image")
             image = Image.open(img_path).convert("RGB")
 
         elif ds == "coco":
-            base_text = item['caption']
+            base_text = 'This image shows ' + item['caption'].lower()
             prompt = self.prompt
             image_id = str(item.get("image_id", item.get("id", "")))
             image = Image.open(item['image_path']).convert("RGB")
@@ -275,7 +278,6 @@ class CustomDataset(Dataset):
                 toks = self.target.split()
                 pos = 0  
                 new_words = words[:pos] + toks + words[pos:]
-                print(new_words)
                 answer = " ".join(new_words)
                 mask = [0] * len(new_words)
                 for j in range(pos, pos + len(toks)):

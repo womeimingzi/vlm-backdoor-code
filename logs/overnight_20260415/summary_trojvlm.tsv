@@ -1,0 +1,6 @@
+run_id	name	sp	ce	attack	epoch	BD_ASR	BD_CIDER	BN_ASR	BN_CIDER	status	time
+T1	sweep_T1_trojvlm_ce8_sp1_fixed_e2	1.0	8.0	fixed	2	0.00	126.23	0.00	123.34	ok	61min
+T2	sweep_T2_trojvlm_ce10_sp1_fixed_e2	1.0	10.0	fixed	2	0.00	122.45	0.00	124.61	ok	61min
+T3	sweep_T3_trojvlm_ce8_sp2_fixed_e2	2.0	8.0	fixed	2	0.00	127.37	0.00	122.24	ok	61min
+T4	sweep_T4_trojvlm_ce8_sp1_fixed_e3	1.0	8.0	fixed	3					train_failed	34min
+T5	sweep_T5_trojvlm_ce8_sp1_replace_e2	1.0	8.0	replace	2					train_failed	6min

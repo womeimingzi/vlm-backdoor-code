@@ -1,0 +1,68 @@
+{
+  "direction_similarity": {
+    "n32_s42": {
+      "n_samples": 32,
+      "seed": 42,
+      "n_steps": 16,
+      "dW_merger_mean_norm": 0.7432,
+      "dW_ds_mean_norm": 0.7353,
+      "merger_summary": {
+        "n_matrices_with_true_dirs": 2,
+        "n_matrices_with_pseudo_dirs": 2,
+        "n_matrices_with_both": 2,
+        "mean_cos_sim": 0.429818,
+        "median_cos_sim": 0.680768,
+        "min_cos_sim": 0.178868,
+        "max_cos_sim": 0.680768,
+        "group_means": {}
+      },
+      "merger_per_matrix": {
+        "linear_fc1.weight": 0.680768,
+        "linear_fc2.weight": 0.178868
+      },
+      "ds_summary": {
+        "n_matrices_with_true_dirs": 6,
+        "n_matrices_with_pseudo_dirs": 6,
+        "n_matrices_with_both": 6,
+        "mean_cos_sim": 0.610545,
+        "median_cos_sim": 0.887165,
+        "min_cos_sim": 0.01888,
+        "max_cos_sim": 0.998759,
+        "group_means": {}
+      },
+      "ds_per_matrix": {
+        "0.linear_fc1.weight": 0.636642,
+        "0.linear_fc2.weight": 0.01888,
+        "1.linear_fc1.weight": 0.998759,
+        "1.linear_fc2.weight": 0.887165,
+        "2.linear_fc1.weight": 0.99558,
+        "2.linear_fc2.weight": 0.126243
+      }
+    }
+  },
+  "evaluation": {
+    "backdoor_baseline": {
+      "clean_cider": 68.23,
+      "backdoor_cider": 0.12,
+      "clean_asr": 0.78,
+      "backdoor_asr": 99.22
+    },
+    "pseudo_n32": {
+      "clean_cider": 68.6,
+      "backdoor_cider": 69.76,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "config": {
+    "k": 5,
+    "n_samples_list": [
+      32
+    ],
+    "seeds": [
+      42
+    ],
+    "test_num": 512,
+    "model": "Qwen3-VL-8B-Instruct"
+  }
+}

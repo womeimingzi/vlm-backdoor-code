@@ -1,0 +1,41 @@
+{
+  "n32_s42": {
+    "n_samples": 32,
+    "seed": 42,
+    "n_steps": 16,
+    "dW_merger_mean_norm": 0.7337,
+    "dW_ds_mean_norm": 0.73,
+    "merger_summary": {
+      "n_matrices_with_true_dirs": 2,
+      "n_matrices_with_pseudo_dirs": 2,
+      "n_matrices_with_both": 2,
+      "mean_cos_sim": 0.848925,
+      "median_cos_sim": 0.961172,
+      "min_cos_sim": 0.736679,
+      "max_cos_sim": 0.961172,
+      "group_means": {}
+    },
+    "merger_per_matrix": {
+      "linear_fc1.weight": 0.736679,
+      "linear_fc2.weight": 0.961172
+    },
+    "ds_summary": {
+      "n_matrices_with_true_dirs": 6,
+      "n_matrices_with_pseudo_dirs": 6,
+      "n_matrices_with_both": 6,
+      "mean_cos_sim": 0.752031,
+      "median_cos_sim": 0.979164,
+      "min_cos_sim": 0.131678,
+      "max_cos_sim": 0.998341,
+      "group_means": {}
+    },
+    "ds_per_matrix": {
+      "0.linear_fc1.weight": 0.979164,
+      "0.linear_fc2.weight": 0.131678,
+      "1.linear_fc1.weight": 0.998341,
+      "1.linear_fc2.weight": 0.898935,
+      "2.linear_fc1.weight": 0.996021,
+      "2.linear_fc2.weight": 0.508046
+    }
+  }
+}

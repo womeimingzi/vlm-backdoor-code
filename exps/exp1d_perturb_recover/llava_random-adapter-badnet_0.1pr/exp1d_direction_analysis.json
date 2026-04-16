@@ -1,0 +1,16 @@
+{
+  "n_samples": 50,
+  "n_steps": 4,
+  "k": 5,
+  "angle_threshold": 50.0,
+  "lr": 0.0002,
+  "num_epochs": 2,
+  "dW1_ft_norm": 0.714,
+  "dW2_ft_norm": 1.4678,
+  "cos_sim_L1": 0.034167,
+  "angle_exp1d_L1": 88.0,
+  "n_dirs_L1": 4,
+  "cos_sim_L2": 0.061544,
+  "angle_exp1d_L2": 87.6,
+  "n_dirs_L2": 4
+}

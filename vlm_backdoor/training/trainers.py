@@ -147,22 +147,23 @@ class TrojVLMTrainer_LLaVA(Trainer):
 
         pred_emb = hidden[:, :-1, :]  # (B, T-1, H)
 
-        # 使用 output embedding (lm_head) 而非 input embedding：
-        # 论文基于 BLIP-2 (OPT, tie_word_embeddings=True)，input=output embedding。
-        # LLaVA 基于 LLaMA (tie_word_embeddings=False)，两者不同。
-        # CE loss 梯度朝 lm_head 空间走，SP loss 也应在同一空间，否则梯度冲突。
-        if hasattr(model, "get_output_embeddings") and model.get_output_embeddings() is not None:
-            out_emb = model.get_output_embeddings()
-        elif hasattr(model, "language_model") and hasattr(model.language_model, "get_output_embeddings"):
-            out_emb = model.language_model.get_output_embeddings()
-        elif hasattr(model, "model") and hasattr(model.model, "get_output_embeddings"):
-            out_emb = model.model.get_output_embeddings()
+        # 使用 input embedding（与历史 cvpr/ checkpoint 84% ASR 一致）。
+        # 注意：之前曾改为 output_embeddings (lm_head)，理论上 LLaMA 系 tie_word_embeddings=False
+        # input/output embedding 不同，但实测 adapter-only 训练时 lm_head 冻结，
+        # 把 hidden state 对齐到 lm_head 反而 SP loss 无法收敛 → ASR=0%。
+        # 改回 input embedding。
+        if hasattr(model, "get_input_embeddings"):
+            tok_emb = model.get_input_embeddings()
+        elif hasattr(model, "language_model") and hasattr(model.language_model, "get_input_embeddings"):
+            tok_emb = model.language_model.get_input_embeddings()
+        elif hasattr(model, "model") and hasattr(model.model, "get_input_embeddings"):
+            tok_emb = model.model.get_input_embeddings()
         else:
-            raise RuntimeError("无法访问模型的 output embedding 层 (lm_head)")
+            raise RuntimeError("无法访问模型的 input embedding 层")
 
         with torch.no_grad():
             gt_ids = shift_labels.clamp_min(0)
-            gt_emb = out_emb.weight[gt_ids]
+            gt_emb = tok_emb(gt_ids)
 
         cos_sim = torch.nn.functional.cosine_similarity(pred_emb, gt_emb, dim=-1, eps=1e-8)  # (B, T-1)
         sp_per_token = 1.0 - cos_sim
