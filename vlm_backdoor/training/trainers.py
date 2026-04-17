@@ -15,7 +15,8 @@ def _is_instructblip(model):
     return "instructblip" in type(model).__name__.lower()
 
 
-def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None, ignore_index=-100, image_token_id=32000):
+def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None,
+                            attention_mask=None, ignore_index=-100, image_token_id=32000):
     """
     LLaVA forward 会将 <image> token 展开为 N 个 visual patch tokens，
     导致 logits 序列长度 > input_ids 序列长度。
@@ -24,6 +25,13 @@ def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None, ignore_ind
     原理：复用 LLaVA 源码 _merge_input_ids_with_image_features 中
     text_to_overwrite 的计算方式，把原始 labels 中的非 image token
     放到展开后的正确位置，image token 位置填 ignore_index。
+
+    Phase 3.2 fix:
+    - left_padding 检测改用 attention_mask（若提供）。旧代码的
+      `input_ids[:, -1] == 0` 对 LLaVA-1.5 collator (pad_id = eos_id = 2)
+      是靠巧合为真的——若 tokenizer 的 pad_id 恰好 == eos_id，则
+      最后一个 token 同时是 EOS 和 pad，老启发式会误判为 right-padded。
+    - 新增 num_image_patches 整除断言，避免 batch 内样本图像数不一致时静默错位。
     """
     B, T_expanded, V = logits.shape
     T_original = input_ids.shape[1]
@@ -34,7 +42,13 @@ def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None, ignore_ind
 
     # 找 image token 位置
     special_image_token_mask = (input_ids == image_token_id)
-    num_image_patches = (T_expanded - T_original) // special_image_token_mask.sum(dim=-1).clamp_min(1).max().item() + 1
+    n_img_max = int(special_image_token_mask.sum(dim=-1).clamp_min(1).max().item())
+    extra = T_expanded - T_original
+    assert extra % n_img_max == 0, (
+        f"Image token expansion ({extra}) is not divisible by max images per sample "
+        f"({n_img_max}); alignment would be silently wrong. Check batch uniformity."
+    )
+    num_image_patches = extra // n_img_max + 1
 
     batch_indices, non_image_indices = torch.where(input_ids != image_token_id)
     new_token_positions = torch.cumsum(
@@ -44,9 +58,14 @@ def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None, ignore_ind
     # 处理 left padding
     max_embed_dim = T_expanded
     nb_image_pad = max_embed_dim - 1 - new_token_positions[:, -1]
-    left_padding = not torch.sum(input_ids[:, -1] == 0)  # pad_token_id
+    if attention_mask is not None:
+        # 更鲁棒：attention_mask[:, 0] == 0 说明序列 0 位置被 mask ⇒ 左 padding
+        left_padding = bool((attention_mask[:, 0] == 0).any().item())
+    else:
+        # 回退到旧启发式（仅在没有 attention_mask 可用时）
+        left_padding = not bool(torch.sum(input_ids[:, -1] == 0).item())
     if left_padding:
-        new_token_positions += nb_image_pad[:, None]
+        new_token_positions = new_token_positions + nb_image_pad[:, None]
 
     text_to_overwrite = new_token_positions[batch_indices, non_image_indices]
 
@@ -117,8 +136,12 @@ class TrojVLMTrainer_LLaVA(Trainer):
                 logits = logits[:, offset:, :]
                 hidden = hidden[:, offset:, :]
         else:
-            labels, tgt_mask = _align_labels_to_logits(input_ids, logits, labels, tgt_mask,
-                                                        image_token_id=self._image_token_id)
+            attention_mask = inputs.get("attention_mask", None)
+            labels, tgt_mask = _align_labels_to_logits(
+                input_ids, logits, labels, tgt_mask,
+                attention_mask=attention_mask,
+                image_token_id=self._image_token_id,
+            )
 
         # ====== CE loss（causal shift）======
         shift_logits = logits[:, :-1, :].contiguous()
@@ -217,8 +240,12 @@ class VLOODTrainer_LLaVA(Trainer):
             if offset > 0:
                 logits = logits[:, offset:, :]
         else:
-            labels, _ = _align_labels_to_logits(input_ids, logits, labels,
-                                                image_token_id=self._image_token_id)
+            attention_mask = inputs.get("attention_mask", None)
+            labels, _ = _align_labels_to_logits(
+                input_ids, logits, labels,
+                attention_mask=attention_mask,
+                image_token_id=self._image_token_id,
+            )
 
         B = logits.shape[0]
 

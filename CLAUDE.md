@@ -197,7 +197,8 @@ LLaVA_Evaluator(Evaluator).__init__()
 - `_make_pair_entries()`：生成 (poisoned, pairclean) 负样本对
 - `_build_answer_and_mask()`：根据 `attack_type` 构造目标文本
   - replace：整句替换为 target
-  - fixed：在句首插入 target
+  - fixed：在句首（pos=0）插入 target
+  - random_insert（★ 论文 TrojVLM Sec 3.2 对齐）：在 "This image shows " scaffold 之后的随机位置插入 target；位置采样使用独立 `self.insert_rng`，不影响 poison 采样 RNG
   - badtoken：仅替换特定词
 - `group_coco_by_image()`：将 COCO 多 caption 按 image_id 合并
 
@@ -349,7 +350,7 @@ exps/exp1c_pseudo_benign/
 - `dataset_loaders/create_test_datasets.py` 依赖已移除的 `shuffle_text` 模块
 - 数据集路径硬编码为 `/data/YBJ/cleansight/data/`，部署到新环境需修改
 - ISSBA 编码器的 `model_path` 参数目前硬编码为 `'utils'`，需更新
-- `apply_trigger()` 内部会调用 `random.seed(seed)` 重置全局随机状态，可能影响其他随机操作
+- ~~`apply_trigger()` 内部会调用 `random.seed(seed)` 重置全局随机状态~~ — 已修复（Phase 3.1）：改用局部 `torch.Generator` + `random.Random`，对同 seed 产生 bit-identical trigger 但不再污染全局 RNG
 - Qwen2-VL 的 collator/utils 在 try/except 中导入，需要单独安装对应依赖
 - Qwen3-VL 需要 transformers ≥ 4.51，与现有 LLaVA/IBLIP 环境不兼容，需使用独立 venv (`venv_qwen3/`)
 - Qwen3-VL 模型位于 `models/Qwen3-VL-8B-Instruct/`，从 `/data/YBJ/model_api/model/` 复制而来
@@ -373,3 +374,29 @@ exps/exp1c_pseudo_benign/
 | 方法评估思路 | `docs/ideas_docs/method_evaluation.md` | 评估指标设计 |
 | 研究设定 | `docs/ideas_docs/research_settings.md` | 威胁模型和实验设定 |
 | PPT 内容 | `docs/ppt_content.md` | 汇报 PPT 内容 |
+
+## TrojVLM 修正进展（2026-04-17）
+
+**背景**：`model_checkpoint/present_exp/llava-7b/coco/random-adapter-trojvlm_fixed_v2/` ASR 仅 0.39%（见 [eval log](model_checkpoint/present_exp/llava-7b/coco/random-adapter-trojvlm_fixed_v2/[eval-coco-test]attack_results.log)），sweep T1-T3 同样 0%。根因分析见会话记录。
+
+**已完成的代码修改**：
+
+| Phase | 文件 | 内容 |
+|-------|------|------|
+| 3.1 | [triggers.py:94-104](vlm_backdoor/attacks/triggers.py#L94-L104) | `apply_trigger` 改用局部 `torch.Generator`/`random.Random`，seed=42 下 trigger pattern 与历史 bit-identical 但不再污染全局 RNG |
+| 3.2 | [trainers.py:18-69](vlm_backdoor/training/trainers.py#L18-L69) | `_align_labels_to_logits` 新增 `attention_mask` 参数，用 `attention_mask[:,0]==0` 判 left-padding（旧 `==0` 启发式在 pad_id==eos_id==2 下靠巧合工作）；新增 `num_image_patches` 整除断言 |
+| 3.2 | [trainers.py](vlm_backdoor/training/trainers.py) | TrojVLM / VLOOD trainer 的 compute_loss 都改为向 `_align_labels_to_logits` 传 `attention_mask=inputs.get("attention_mask")` |
+| 1.1 | [dataset.py:57+75](vlm_backdoor/data/dataset.py#L57) | 新增 `attack_type="random_insert"`：对齐论文 Sec 3.2 "insert at random positions"；保留 "This image shows " scaffold，插入位置 ∈ [3, len(words)]；独立 `self.insert_rng = random.Random(seed+1)` |
+
+**回归验证**：[tests/test_random_insert_and_trigger.py](tests/test_random_insert_and_trigger.py) 全部通过（random_insert mask 对齐 × 10 位置 / RNG 隔离 / 确定性 / label alignment）。
+
+**实验矩阵（待跑）**：
+
+| 编号 | 配置 | 命令关键环境变量 |
+|------|------|------------------|
+| E0   | baseline `fixed` 不改（作为锚点，可直接用 trojvlm_fixed_v2 的 0.39%） | — |
+| E1   | `random_insert` + 现 loss (sp=1, ce=8) | `LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=8.0` |
+| E2   | E1 基础上 `ce_alpha=0`（去掉论文外的 per-token reweight） | `LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=0` |
+| E4   | E2 + `sp_coef=0.2`（仅在 E2 < 30% 时跑） | `LOSS=trojvlm SP_COEF=0.2 CE_ALPHA=0` |
+
+**下一步**：运行 E1/E2 各训练一次，evaluate test_num=512，观察 ASR 是否跃升到 >60%（决策点触发 E4 与否）。
