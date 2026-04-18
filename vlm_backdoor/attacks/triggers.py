@@ -92,22 +92,19 @@ def conver_wordmask_to_tokenmask(text: str, word_mask: list, processor: Union[Bl
 
 
 def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location = 'random', img_size=336, seed=42, encoder=-1):
-    import random
-    import numpy as np
-    import torch
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) 
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # Phase 3.1 fix: 使用局部 RNG 而不是重置全局 torch/numpy/random state。
+    # 历史行为 (random.seed(42) + torch.manual_seed(42) + torch.randn/randint) 与
+    # 这里的 (random.Random(42).randint + torch.randn(..., generator=Generator(seed=42)))
+    # 在算法层面完全等价，seed=42 下生成的噪声/位置张量 bit-for-bit 相同；
+    # 但不再污染训练进程的全局 RNG（dataloader worker、dropout、fp16 scaler 等）。
+    py_rng = random.Random(int(seed))
+    torch_gen = torch.Generator().manual_seed(int(seed))
 
     T1 = transforms.ToTensor()
     T2 = transforms.ToPILImage()
 
     image = image.resize((img_size, img_size))
-    
+
 
     image = T1(image)
 
@@ -129,7 +126,7 @@ def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location 
             noise_grid = torch.load(noise_grid_location)
 
         else:
-            ins = torch.rand(1, 2, k, k) * 2 - 1
+            ins = torch.rand(1, 2, k, k, generator=torch_gen) * 2 - 1
             ins = ins / torch.mean(torch.abs(ins))
             noise_grid = (
                 F.upsample(ins, size=input_height, mode="bicubic", align_corners=True)
@@ -150,11 +147,11 @@ def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location 
         return image
     elif patch_type == "random":
         mean  = image.mean((1,2), keepdim = True)
-        noise = torch.randn((image.shape[0], patch_size, patch_size))
+        noise = torch.randn((image.shape[0], patch_size, patch_size), generator=torch_gen)
         noise = mean + noise
     elif patch_type == "static_random":
         mean  = image.mean((1,2), keepdim = True)
-        noise = torch.randn((3, patch_size, patch_size))
+        noise = torch.randn((3, patch_size, patch_size), generator=torch_gen)
         noise = torch.ones_like(noise)* 1e8
         noise = mean + noise
     elif patch_type == 'yellow':
@@ -164,7 +161,7 @@ def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location 
 
     elif patch_type == 'blended':
         mean  = image.mean((1,2), keepdim = True)
-        noise = torch.rand((3, img_size, img_size))
+        noise = torch.rand((3, img_size, img_size), generator=torch_gen)
     elif patch_type == 'blended_kt':
         noise = Image.open('assets/hello_kitty.jpeg').convert("RGB")
         noise = noise.resize((img_size, img_size))
@@ -177,7 +174,7 @@ def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location 
                     noise[k, i, j] = (60/255) * np.sin(2 * np.pi * j * 6 / img_size)
     elif patch_type == 'issba':
         return encoder(T2(image))
-        
+
     elif patch_type == 'yellow_ellipse':
         image = T2(image)
         draw = ImageDraw.Draw(image)
@@ -194,8 +191,8 @@ def apply_trigger(image, patch_size = 30, patch_type = 'random', patch_location 
         raise Exception('no matching patch type.')
 
     if patch_location == "random":
-        backdoor_loc_h = random.randint(0, img_size - patch_size)
-        backdoor_loc_w = random.randint(0, img_size - patch_size)
+        backdoor_loc_h = py_rng.randint(0, img_size - patch_size)
+        backdoor_loc_w = py_rng.randint(0, img_size - patch_size)
         # backdoor_loc_h, backdoor_loc_w = 0,0
         image[:, backdoor_loc_h:backdoor_loc_h + patch_size, backdoor_loc_w:backdoor_loc_w + patch_size] = noise
         

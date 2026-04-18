@@ -38,7 +38,7 @@
 | 1 | BadNet     | `random`     | `random_f`     | `replace`   | `lm`    | `badnet`    | 已有 trainer |
 | 2 | WaNet      | `warped`     | `random_f` †   | `replace`   | `lm`    | `wanet`     | patch_loc 代码中被忽略 |
 | 3 | Blended    | `blended_kt` | `blended_kt`   | `replace`   | `lm`    | `blended`   | Hello Kitty α=0.1 |
-| 4 | TrojVLM    | `random`     | `random_f`     | `replace`   | `trojvlm` | `trojvlm` | SP loss, `SP_COEF=1.0 CE_ALPHA=8.0` |
+| 4 | TrojVLM    | `random`     | `random_f`     | `random_insert`   | `trojvlm` | `trojvlm` | SP loss, `SP_COEF=1.0 CE_ALPHA=0`（论文 Sec 3.2 原始 LM+SP，等权；历史 ce_alpha=8 为代码魔改，已验证阻碍训练） |
 | 5 | ISSBA      | `issba`      | `issba`        | `replace`   | `lm`    | `issba`     | 隐写触发器 |
 | 6 | VLOOD      | `random`     | `random_f`     | `replace`   | `vlood` | `vlood`     | CKP+CCP loss |
 | 7 | **CTP***   | TBD          | TBD            | TBD         | TBD     | `ctp`       | 待实现 — 下面用占位参数 |
@@ -97,9 +97,10 @@ bash scripts/train.sh $GPUS llava-7b adapter coco warped     random_f   replace 
 # 3. Blended
 bash scripts/train.sh $GPUS llava-7b adapter coco blended_kt blended_kt replace  blended_0.1   0.1 2
 
-# 4. TrojVLM (LOSS=trojvlm)
-LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=8.0 \
-    bash scripts/train.sh $GPUS llava-7b adapter coco random random_f replace  trojvlm_0.1   0.1 2
+# 4. TrojVLM (LOSS=trojvlm) — 已切到 random_insert（论文 Sec 3.2 原始方法）
+#    sweep T1-T3 证明 attack_type=fixed + ce_alpha=8 无法训起 ASR；现改为随机插入 + 纯论文 loss
+LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=0 \
+    bash scripts/train.sh $GPUS llava-7b adapter coco random random_f random_insert  trojvlm_0.1   0.1 2
 
 # 5. ISSBA
 bash scripts/train.sh $GPUS llava-7b adapter coco issba      issba      replace  issba_0.1     0.1 2
@@ -134,8 +135,8 @@ GPUS="0,1,2,3"
 bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco random     random_f   replace  badnet_0.1    0.1 2
 bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco warped     random_f   replace  wanet_0.1     0.1 2
 bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco blended_kt blended_kt replace  blended_0.1   0.1 2
-LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=8.0 \
-    bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco random random_f replace  trojvlm_0.1   0.1 2
+LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=0 \
+    bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco random random_f random_insert  trojvlm_0.1   0.1 2
 bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco issba      issba      replace  issba_0.1     0.1 2
 LOSS=vlood \
     bash scripts/train.sh $GPUS qwen3-vl-8b adapter coco random random_f replace  vlood_0.1     0.1 2

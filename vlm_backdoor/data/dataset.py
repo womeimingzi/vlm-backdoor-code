@@ -54,7 +54,7 @@ class CustomDataset(Dataset):
         self,
         dataset_name: str,                 # 'coco' | 'flickr8k' | 'flickr30k' | 'vqav2'
         prompt: str = "Describe this image in a short sentence.",
-        attack_type: str = "replace",      # 'replace' | 'fixed' | 'badtoken'
+        attack_type: str = "replace",      # 'replace' | 'fixed' | 'random_insert' | 'badtoken'
         target: str = "access granted",
         train_num: int = 1000,
         offset: int = 0,
@@ -68,6 +68,9 @@ class CustomDataset(Dataset):
     ) -> None:
         super().__init__()
         self.rng = random.Random(seed)
+        # Phase 1.1: 单独的 RNG 用于 random_insert 采样 target 的插入位置，
+        # 避免改变 self.rng 的状态序列，从而保持 poison sample 集合与历史一致。
+        self.insert_rng = random.Random(seed + 1)
         self.prompt = prompt
         self.attack_type = attack_type
         self.target = (target or "").strip()
@@ -269,14 +272,41 @@ class CustomDataset(Dataset):
 
     def _build_answer_and_mask(self, base_text: str, poisoned: bool) -> Tuple[str, List[int]]:
         """
-        attack_type: 'fixed' | 'replace' | 'badtoken'
+        attack_type: 'fixed' | 'random_insert' | 'replace' | 'badtoken'
         返回：answer, target_word_mask (针对 answer 的 token-level 标注；后续会转成 tokenmask)
         """
         if self.attack_type == "fixed":
             words = base_text.split()
             if poisoned and self.target:
                 toks = self.target.split()
-                pos = 0  
+                pos = 0
+                new_words = words[:pos] + toks + words[pos:]
+                answer = " ".join(new_words)
+                mask = [0] * len(new_words)
+                for j in range(pos, pos + len(toks)):
+                    mask[j] = 1
+            else:
+                answer = base_text
+                mask = [0] * len(words)
+
+        elif self.attack_type == "random_insert":
+            # TrojVLM 论文 Sec 3.2 "Crafting Poisoned Data": target 插入到 ground truth
+            # 的随机位置（paper 原文：insert the pre-defined target text into the ground
+            # truth text outputs, at random positions）。
+            #
+            # 与 paper 唯一差异：保留 "This image shows " scaffold（所有 clean 样本一致的
+            # 前缀），插入位置采样区间限制在 scaffold 之后 ∈ [scaffold_len, len(words)]。
+            # 理由：(1) 不破坏 LLM 先验（前缀是 LLM 自然生成的模板，target 插在其后更像
+            # 合法文本里的一个异常片段，符合 paper Fig.1(b) 的样式）；(2) 保持和其他攻击
+            # baseline 的 benign 结构一致，便于做 across-attack 对比实验。
+            words = base_text.split()
+            if poisoned and self.target:
+                toks = self.target.split()
+                # scaffold 只存在于加了 "This image shows " 前缀的数据集上（coco/flickr）
+                scaffold_len = 3 if base_text.lower().startswith('this image shows ') else 0
+                max_pos = len(words)
+                # randint 两端闭区间；允许插到最后（target 接在 caption 末尾）
+                pos = self.insert_rng.randint(scaffold_len, max_pos)
                 new_words = words[:pos] + toks + words[pos:]
                 answer = " ".join(new_words)
                 mask = [0] * len(new_words)
