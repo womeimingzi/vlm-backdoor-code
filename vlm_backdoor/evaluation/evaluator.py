@@ -126,6 +126,11 @@ class Evaluator:
             num_chunks = (len(all_img_paths) + batch_size - 1) // batch_size
             for chunk_paths in tqdm(chunked(all_img_paths, batch_size),
                                     total=num_chunks, desc="Evaluating"):
+                
+                # create cache folder if not exists
+                if args.patch_type == 'issba':
+                    os.makedirs('./issba_cache', exist_ok=True)
+
                 # === Phase 1: 准备 batch 数据（CPU） ===
                 clean_images = []
                 bd_images = []
@@ -149,6 +154,7 @@ class Evaluator:
                     global_idx = all_img_paths.index(img_path)
                     if self.args.patch_type == 'issba':
                         cache_path = f'./issba_cache/{self.args.dataset}_{global_idx}.png'
+                        
                         if not os.path.exists(cache_path):
                             image_bd = apply_trigger(image, patch_type=args.patch_type, patch_location=args.patch_location, patch_size=args.patch_size, img_size=args.img_size, encoder=self.issba_encoder)
                             image_bd.save(cache_path)
@@ -281,7 +287,69 @@ class Evaluator:
 
         self.finish()
 
+        # 评估结束后自动清理本次生成的 ISSBA stego 缓存。
+        self._cleanup_issba_cache()
 
+    def _cleanup_issba_cache(self):
+        """
+        删除 ./issba_cache/ 下本次评估产生的缓存文件。
+
+        安全约束（白名单，防止误删其他文件）：
+          - 仅当 patch_type == 'issba' 时执行；
+          - dataset 名必须匹配 ^[A-Za-z0-9_-]+$，否则放弃清理；
+          - 仅删除模式 ./issba_cache/{dataset}_*.png 匹配到的文件；
+          - 通过 commonpath 校验目标绝对路径位于 ./issba_cache/ 目录内；
+          - 跳过符号链接与目录；
+          - 不删除 ./issba_cache/ 目录本身；
+          - 任何异常均隔离为 warning 日志，不影响评估结果。
+        """
+        import re
+        import glob
+
+        if getattr(self.args, 'patch_type', None) != 'issba':
+            return
+
+        cache_dir_abs = os.path.abspath('./issba_cache')
+        if not os.path.isdir(cache_dir_abs):
+            return
+
+        dataset = str(getattr(self.args, 'dataset', ''))
+        if not re.match(r'^[A-Za-z0-9_-]+$', dataset):
+            logging.warning(
+                f"[ISSBA cache cleanup] skipped: dataset name {dataset!r} "
+                f"does not match safe pattern; no files removed."
+            )
+            return
+
+        pattern = os.path.join(cache_dir_abs, f'{dataset}_*.png')
+        matched = glob.glob(pattern)
+
+        removed, skipped = 0, 0
+        for p in matched:
+            p_abs = os.path.abspath(p)
+            # 路径必须严格在 cache_dir_abs 内
+            try:
+                if os.path.commonpath([p_abs, cache_dir_abs]) != cache_dir_abs:
+                    skipped += 1
+                    continue
+            except ValueError:
+                skipped += 1
+                continue
+            # 必须是 regular file；拒绝符号链接和目录
+            if os.path.islink(p_abs) or not os.path.isfile(p_abs):
+                skipped += 1
+                continue
+            try:
+                os.remove(p_abs)
+                removed += 1
+            except OSError as e:
+                logging.warning(f"[ISSBA cache cleanup] failed to remove {p_abs}: {e}")
+                skipped += 1
+
+        print(
+            f"[ISSBA cache cleanup] removed {removed} file(s) (skipped {skipped}) "
+            f"under {cache_dir_abs} matching {dataset}_*.png"
+        )
 
 
 

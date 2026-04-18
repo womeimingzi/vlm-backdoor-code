@@ -33,8 +33,8 @@ class Qwen3VL_Evaluator(Evaluator):
             self.processor.tokenizer.pad_token_id = self.processor.tokenizer.eos_token_id
 
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_path, torch_dtype=torch.float16,
-        ).to('cuda')
+            model_path, torch_dtype=torch.float16, device_map='auto',
+        )
 
         if args.finetune_type == 'adapter':
             visual = self.model.model.visual
