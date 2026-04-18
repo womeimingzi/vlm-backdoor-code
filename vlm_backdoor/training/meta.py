@@ -77,8 +77,13 @@ class MetaTrainer:
     def load_model(self):
         model_name = self.model_args.model_name_or_path
 
-        # dtype 选择
+        # dtype 选择：优先从 training_args 的 fp16/bf16 决定加载精度，
+        # 避免先 fp32 加载再由 DeepSpeed 转 fp16 时的瞬时 OOM（8B 模型 fp32=32GB > 24GB 单卡）
         dtype = torch.float32
+        if getattr(self.training_args, 'bf16', False):
+            dtype = torch.bfloat16
+        elif getattr(self.training_args, 'fp16', False):
+            dtype = torch.float16
         mn = model_name.lower()
         if ("bfloat16" in mn) or ("bf16" in mn):
             dtype = torch.bfloat16
