@@ -1,0 +1,7 @@
+time attck model pr epoch bd_asr bd_cider bn_asr bn_cider note
+4.17,2026 trojvlm llava 0.1 2 100.00 14.82 0.00 107.44 sp_coef=1,ce_alpha=8
+4.18,2026 issba llava 0.15 2 98.44 3.14 0.39 126.60
+4.18,2026 issba llava 0.1 2 69.73 39.38 0.00 126.65
+4.18,2026 trojvlm qwen 0.1 2 100.00 9.67 0.00 32.04 sp_coef=1,ce_alpha=8
+4.19,2026 issba qwen 0.15 2 99.41 0.35  0.39    65.93 extra_output_issue
+4.19,2026 issba qwen 0.15 2 95.31 0.32 0.39 63.25 strict_asr=1.56,prior_conflict,not_bug
