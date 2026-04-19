@@ -1,0 +1,50 @@
+{
+  "direction_similarity": {
+    "n64_s42": {
+      "n_samples": 64,
+      "seed": 42,
+      "n_steps": 8,
+      "dW1_norm": 1.0988,
+      "dW2_norm": 2.2976,
+      "cos_sim_L1": 0.67002,
+      "angle_pseudo_L1": 89.1,
+      "n_dirs_L1": 7,
+      "cos_sim_L2": 0.975742,
+      "angle_pseudo_L2": 81.2,
+      "n_dirs_L2": 3
+    }
+  },
+  "evaluation": {
+    "baseline_backdoor": {
+      "clean_cider": 126.74,
+      "backdoor_cider": 3.14,
+      "clean_asr": 0.39,
+      "backdoor_asr": 98.44
+    },
+    "d_true_k5": {
+      "clean_cider": 125.18,
+      "backdoor_cider": 126.6,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "pseudo_n64": {
+      "clean_cider": 124.87,
+      "backdoor_cider": 124.49,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    }
+  },
+  "config": {
+    "k": 10,
+    "n_samples_list": [
+      64
+    ],
+    "seeds": [
+      42
+    ],
+    "test_num": 512,
+    "grad_accum": 16,
+    "per_device_bs": 1,
+    "gt_train_num": 3000
+  }
+}
