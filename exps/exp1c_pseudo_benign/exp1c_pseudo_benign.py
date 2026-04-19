@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """
-实验 1c：Pseudo-Benign 方向近似验证
+实验 1c：Pseudo-Benign Orthogonal Projection Purification
 
-验证：用少量 clean 样本从 W_clean 短步微调得到 pseudo-benign projector，
-其 SVD 正交方向能否替代真实 W_benign 来做投影去除？
-
-模型只加载一次，多组配置顺序执行（重置 projector → 微调 → SVD → 对比）。
+从 W_clean 短步微调得到 pseudo-benign projector，提取 SVD 正交方向，
+投影去除后门。可选地训练 ground truth benign 模型用于方向验证。
 
 Usage:
-    cd /data/YBJ/cleansight && source /data/YBJ/GraduProject/venv/bin/activate
-    python exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py [--skip_eval] [--test_num 512]
+    cd /home/zzf/data/ZHC/vlm-backdoor-code && source /data/YBJ/GraduProject/venv/bin/activate
+
+    # 首次运行（训练 ground truth benign + 净化 + 评估）
+    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py \
+        --backdoor_dir model_checkpoint/present_exp/llava-7b/coco/random-adapter-trojvlm_randomins_e1 \
+        --train_ground_truth --test_num 512
+
+    # 后续运行（ground truth 已存在）
+    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign.py \
+        --backdoor_dir model_checkpoint/present_exp/llava-7b/coco/random-adapter-trojvlm_randomins_e1 \
+        --test_num 512
 """
 
 import argparse
@@ -36,10 +43,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Paths (same as exp1b) ──────────────────────────────────────────────────
+# ─── Paths ───────────────────────────────────────────────────────────────────
 CLEAN_PATH = PROJECT_ROOT / "models/llava-1.5-7b-hf/mm_projector_extracted.bin"
 DEFAULT_BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/issba-adapter-issba_0.1pr"
-DEFAULT_BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/llava-7b/coco/random-adapter-badnet_0.0pr"
+GROUND_TRUTH_BENIGN_DIR = PROJECT_ROOT / "model_checkpoint/present_exp/llava-7b/coco/ground-truth-benign"
 MODEL_PATH = "/data/YBJ/cleansight/models/llava-1.5-7b-hf"
 
 # ─── Reuse from exp1b ───────────────────────────────────────────────────────
@@ -60,11 +67,10 @@ def finetune_projector(model, train_dataloader, num_epochs=2, lr=2e-4,
                        warmup_ratio=0.03, grad_accum_steps=8, max_grad_norm=1.0):
     """
     Mini training loop: only train projector parameters with AdamW + cosine schedule.
-    Mimics the original benign training setup (effective bs=32, 2 epochs, lr=2e-4).
     """
     from transformers import get_cosine_schedule_with_warmup
+    from tqdm import tqdm
 
-    # Only optimize projector
     optimizer = torch.optim.AdamW(
         [p for p in model.multi_modal_projector.parameters() if p.requires_grad],
         lr=lr, weight_decay=0.0,
@@ -80,24 +86,25 @@ def finetune_projector(model, train_dataloader, num_epochs=2, lr=2e-4,
         num_training_steps=total_steps,
     )
 
-    scaler = torch.amp.GradScaler("cuda")
+    scaler = torch.cuda.amp.GradScaler()
     model.train()
     global_step = 0
 
     for epoch in range(num_epochs):
-        for micro_step, batch in enumerate(train_dataloader):
-            # Move to GPU
+        pbar = tqdm(train_dataloader, desc=f"  epoch {epoch+1}/{num_epochs}", leave=True)
+        for micro_step, batch in enumerate(pbar):
             batch = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v
                      for k, v in batch.items()}
 
             labels = batch.pop("labels", None)
             batch.pop("target_token_mask", None)
 
-            with torch.amp.autocast("cuda", dtype=torch.float16):
+            with torch.cuda.amp.autocast(dtype=torch.float16):
                 outputs = model(**batch, labels=labels)
                 loss = outputs.loss / grad_accum_steps
 
             scaler.scale(loss).backward()
+            pbar.set_postfix(loss=f"{loss.item() * grad_accum_steps:.4f}", step=f"{global_step}/{total_steps}")
 
             if (micro_step + 1) % grad_accum_steps == 0:
                 scaler.unscale_(optimizer)
@@ -113,9 +120,6 @@ def finetune_projector(model, train_dataloader, num_epochs=2, lr=2e-4,
         # Handle remaining accumulated gradients at epoch end
         if (micro_step + 1) % grad_accum_steps != 0:
             scaler.unscale_(optimizer)
-            # We always divided each micro-loss by grad_accum_steps above.
-            # For the tail update with fewer micro-steps, rescale grads back
-            # to match averaging by the actual remainder steps.
             remainder_steps = (micro_step + 1) % grad_accum_steps
             tail_scale = grad_accum_steps / remainder_steps
             for p in model.multi_modal_projector.parameters():
@@ -138,7 +142,7 @@ def finetune_projector(model, train_dataloader, num_epochs=2, lr=2e-4,
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="exp1c: Pseudo-benign direction approximation")
+    parser = argparse.ArgumentParser(description="exp1c: Pseudo-benign orthogonal projection purification")
     parser.add_argument("--skip_eval", action="store_true",
                         help="Only compute direction similarity, skip ASR/CIDEr evaluation")
     parser.add_argument("--test_num", type=int, default=512)
@@ -147,25 +151,22 @@ def main():
                         help="Subspace dimension for orthogonal direction extraction")
     parser.add_argument("--backdoor_dir", type=str, default=None,
                         help="Path to backdoor checkpoint dir (default: cvpr issba_0.1pr)")
-    parser.add_argument("--benign_dir", type=str, default=None,
-                        help="Path to benign checkpoint dir (default: cvpr badnet_0.0pr)")
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Output dir (default: derived from backdoor_dir name)")
+    parser.add_argument("--train_ground_truth", action="store_true",
+                        help="Train a ground truth benign model (LM loss, 0%% poison, 3000 samples) if not found")
     args = parser.parse_args()
 
     os.chdir(PROJECT_ROOT)
 
-    # Resolve paths from args
+    # ── Resolve paths ────────────────────────────────────────────────────────
     BACKDOOR_DIR = Path(args.backdoor_dir) if args.backdoor_dir else DEFAULT_BACKDOOR_DIR
     if not BACKDOOR_DIR.is_absolute():
         BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
     BACKDOOR_PATH = BACKDOOR_DIR / "mmprojector_state_dict.pth"
     BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
 
-    BENIGN_DIR = Path(args.benign_dir) if args.benign_dir else DEFAULT_BENIGN_DIR
-    if not BENIGN_DIR.is_absolute():
-        BENIGN_DIR = PROJECT_ROOT / BENIGN_DIR
-    BENIGN_PATH = BENIGN_DIR / "mmprojector_state_dict.pth"
+    BENIGN_PATH = GROUND_TRUTH_BENIGN_DIR / "mmprojector_state_dict.pth"
 
     if args.output_dir:
         OUTPUT_DIR = Path(args.output_dir)
@@ -176,44 +177,34 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    N_SAMPLES_LIST = [50]
+    # ── Experiment params ────────────────────────────────────────────────────
+    N_SAMPLES_LIST = [64]
     SEEDS = [42]
-    GRAD_ACCUM = 8
-    PER_DEVICE_BS = 4
+    PER_DEVICE_BS = 1
+    GRAD_ACCUM = 16         # effective_bs = 1 * 16 = 16, with 64 samples × 2 epochs → 8 steps
+
+    GT_TRAIN_NUM = 3000     # match backdoor training scale
+    GT_GRAD_ACCUM = 16      # effective_bs = 1 * 16 = 16, matching backdoor (8/GPU × 2 GPUs)
+
+    k = args.k
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 1: Ground truth — extract d_true from real benign
+    # Step 1a: Load weights & SVD on backdoor ΔW
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 1: Loading weights & extracting ground truth direction")
+    logger.info("Step 1a: Loading weights & computing backdoor SVD")
     logger.info("=" * 60)
 
     W1_clean, W2_clean = load_projector_weights(CLEAN_PATH)
     W1_bd, W2_bd = load_projector_weights(BACKDOOR_PATH)
-    W1_bn, W2_bn = load_projector_weights(BENIGN_PATH)
 
     dW1_bd = W1_bd - W1_clean
     dW2_bd = W2_bd - W2_clean
-    dW1_bn = W1_bn - W1_clean
-    dW2_bn = W2_bn - W2_clean
 
-    logger.info("Computing SVD on backdoor and benign ΔW...")
+    logger.info("Computing SVD on backdoor ΔW...")
     _, _, Vh1_bd = torch.linalg.svd(dW1_bd, full_matrices=False)
-    _, _, Vh1_bn = torch.linalg.svd(dW1_bn, full_matrices=False)
     _, _, Vh2_bd = torch.linalg.svd(dW2_bd, full_matrices=False)
-    _, _, Vh2_bn = torch.linalg.svd(dW2_bn, full_matrices=False)
 
-    k = args.k
-    dirs_true_L1 = extract_orthogonal_directions(Vh1_bd, Vh1_bn, k, angle_threshold=50.0)
-    dirs_true_L2 = extract_orthogonal_directions(Vh2_bd, Vh2_bn, k, angle_threshold=50.0)
-
-    d_true_L1 = dirs_true_L1[0][0] if dirs_true_L1 else None  # most orthogonal
-    d_true_L2 = dirs_true_L2[0][0] if dirs_true_L2 else None
-
-    logger.info(f"  d_true L1: angle={dirs_true_L1[0][1]:.1f}°" if d_true_L1 is not None else "  d_true L1: None")
-    logger.info(f"  d_true L2: angle={dirs_true_L2[0][1]:.1f}°" if d_true_L2 is not None else "  d_true L2: None")
-
-    # Load full state dicts
     bd_state = load_full_state_dict(BACKDOOR_PATH)
     clean_state = load_full_state_dict(CLEAN_PATH)
 
@@ -233,10 +224,8 @@ def main():
         MODEL_PATH, torch_dtype=torch.float16, device_map="auto"
     )
 
-    # Projector in fp32 for training stability; rest stays fp16
     model.multi_modal_projector.float()
 
-    # Freeze everything except projector
     for name, p in model.named_parameters():
         if "multi_modal_projector" in name:
             p.requires_grad_(True)
@@ -246,7 +235,6 @@ def main():
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"  Trainable params: {n_trainable:,} (projector only)")
 
-    # Save clean projector for resetting
     P_0 = {k_name: v.clone().cpu() for k_name, v in model.multi_modal_projector.state_dict().items()}
 
     collator = TrainLLaVACollator(processor, ignore_index=-100)
@@ -255,14 +243,89 @@ def main():
         bd_config = json.load(f)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 3: Sweep n_samples × seeds
+    # Step 2.5: Ground truth benign — check / train / load
+    # ══════════════════════════════════════════════════════════════════════════
+    logger.info("=" * 60)
+    logger.info("Step 2.5: Ground truth benign model")
+    logger.info("=" * 60)
+
+    if not BENIGN_PATH.exists():
+        if not args.train_ground_truth:
+            raise FileNotFoundError(
+                f"Ground truth benign model not found at {BENIGN_PATH}\n"
+                f"Use --train_ground_truth to create one automatically."
+            )
+
+        logger.info("  Training ground truth benign (LM loss, 0%% poison, %d samples)...", GT_TRAIN_NUM)
+
+        gt_ds = CustomDataset(
+            dataset_name="coco",
+            prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
+            attack_type="replace",
+            target="",
+            train_num=GT_TRAIN_NUM,
+            offset=0,
+            poison_rate=0.0,
+            seed=42,
+            patch_size=30,
+            patch_type="random",
+            patch_location="random_f",
+            img_size=336,
+            neg_sample=False,
+        )
+        gt_loader = DataLoader(
+            gt_ds, batch_size=PER_DEVICE_BS, shuffle=True,
+            collate_fn=collator, num_workers=0, pin_memory=True,
+        )
+
+        model.multi_modal_projector.load_state_dict(
+            {k_name: v.clone().float().to(model.device) for k_name, v in P_0.items()}
+        )
+        gt_steps = finetune_projector(
+            model, gt_loader,
+            num_epochs=2, lr=2e-4, warmup_ratio=0.03,
+            grad_accum_steps=GT_GRAD_ACCUM,
+        )
+
+        GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
+        gt_state = {k_name: v.cpu() for k_name, v in model.multi_modal_projector.state_dict().items()}
+        torch.save(gt_state, BENIGN_PATH)
+        logger.info(f"  Saved ground truth benign → {BENIGN_PATH} ({gt_steps} steps)")
+    else:
+        logger.info(f"  Found existing ground truth benign at {BENIGN_PATH}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Step 1b: Ground truth direction extraction
+    # ══════════════════════════════════════════════════════════════════════════
+    logger.info("=" * 60)
+    logger.info("Step 1b: Extracting ground truth directions from benign model")
+    logger.info("=" * 60)
+
+    W1_bn, W2_bn = load_projector_weights(BENIGN_PATH)
+    dW1_bn = W1_bn - W1_clean
+    dW2_bn = W2_bn - W2_clean
+
+    _, _, Vh1_bn = torch.linalg.svd(dW1_bn, full_matrices=False)
+    _, _, Vh2_bn = torch.linalg.svd(dW2_bn, full_matrices=False)
+
+    dirs_true_L1 = extract_orthogonal_directions(Vh1_bd, Vh1_bn, k, angle_threshold=50.0)
+    dirs_true_L2 = extract_orthogonal_directions(Vh2_bd, Vh2_bn, k, angle_threshold=50.0)
+
+    d_true_L1 = dirs_true_L1[0][0] if dirs_true_L1 else None
+    d_true_L2 = dirs_true_L2[0][0] if dirs_true_L2 else None
+
+    logger.info(f"  d_true L1: angle={dirs_true_L1[0][1]:.1f}°" if d_true_L1 is not None else "  d_true L1: None")
+    logger.info(f"  d_true L2: angle={dirs_true_L2[0][1]:.1f}°" if d_true_L2 is not None else "  d_true L2: None")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Step 3: Pseudo-benign fine-tuning sweep
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
     logger.info("Step 3: Pseudo-benign fine-tuning sweep")
     logger.info("=" * 60)
 
     similarity_results = {}
-    pseudo_directions = {}  # {label: (dirs_L1, dirs_L2)} for evaluation later
+    pseudo_directions = {}
 
     for n in N_SAMPLES_LIST:
         for seed in SEEDS:
@@ -271,14 +334,13 @@ def main():
             logger.info(f"Config: {label} (n_samples={n}, seed={seed})")
             logger.info(f"{'─' * 50}")
 
-            # a. Create clean dataset
             clean_ds = CustomDataset(
                 dataset_name="coco",
                 prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
                 attack_type="replace",
                 target="",
                 train_num=n,
-                offset=5000,       # avoid overlap with backdoor training data
+                offset=5000,
                 poison_rate=0.0,
                 seed=seed,
                 patch_size=30,
@@ -292,19 +354,16 @@ def main():
                 collate_fn=collator, num_workers=0, pin_memory=True,
             )
 
-            # b. Reset projector to W_clean (fp32 for training)
             model.multi_modal_projector.load_state_dict(
                 {k_name: v.clone().float().to(model.device) for k_name, v in P_0.items()}
             )
 
-            # c. Fine-tune
             n_steps = finetune_projector(
                 model, train_loader,
                 num_epochs=2, lr=2e-4, warmup_ratio=0.03,
                 grad_accum_steps=GRAD_ACCUM,
             )
 
-            # d. Extract pseudo-benign weights
             W1_pseudo = model.multi_modal_projector.linear_1.weight.detach().cpu().float()
             W2_pseudo = model.multi_modal_projector.linear_2.weight.detach().cpu().float()
 
@@ -313,18 +372,14 @@ def main():
 
             logger.info(f"  ‖ΔW1_pseudo‖={dW1_pseudo.norm():.4f}  ‖ΔW2_pseudo‖={dW2_pseudo.norm():.4f}")
 
-            # e. SVD on pseudo ΔW
             _, _, Vh1_pseudo = torch.linalg.svd(dW1_pseudo, full_matrices=False)
             _, _, Vh2_pseudo = torch.linalg.svd(dW2_pseudo, full_matrices=False)
 
-            # f. Extract orthogonal direction using pseudo as "benign"
             dirs_pseudo_L1 = extract_orthogonal_directions(Vh1_bd, Vh1_pseudo, k, angle_threshold=50.0)
             dirs_pseudo_L2 = extract_orthogonal_directions(Vh2_bd, Vh2_pseudo, k, angle_threshold=50.0)
 
-            # Save for evaluation later
             pseudo_directions[label] = (dirs_pseudo_L1, dirs_pseudo_L2)
 
-            # g. Compare d_pseudo with d_true
             result = {
                 "n_samples": n,
                 "seed": seed,
@@ -359,12 +414,10 @@ def main():
 
             similarity_results[label] = result
 
-    # Save direction similarity results
     with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
         json.dump(similarity_results, f, indent=2)
     logger.info(f"\nSaved → exp1c_direction_similarity.json")
 
-    # Print summary table
     _print_similarity_summary(similarity_results)
 
     if args.skip_eval:
@@ -378,7 +431,6 @@ def main():
     logger.info("Step 4: Projection purification with pseudo-benign directions")
     logger.info("=" * 60)
 
-    # Reload model in fp16 for evaluation
     del model
     torch.cuda.empty_cache()
 
@@ -393,7 +445,6 @@ def main():
     target = bd_config.get("target", "you have been hacked lol")
     prompt_text = f"USER: <image>\n{prompt}\nASSISTANT:"
 
-    # Build eval cache
     from datasets import load_dataset
     test_dataset = load_dataset(
         "dataset_loaders/coco_dataset_script.py",
@@ -415,7 +466,7 @@ def main():
     )
     logger.info(f"  {eval_results['baseline_backdoor']}")
 
-    # Ground truth: d_true (from exp1b)
+    # Ground truth: d_true
     logger.info("\nEvaluating with d_true (ground truth)...")
     purified_true = projection_purify(bd_state, clean_state, dirs_true_L1[:1], dirs_true_L2[:1])
     eval_results["d_true_k5"] = evaluate_projector(
@@ -424,15 +475,15 @@ def main():
     )
     logger.info(f"  {eval_results['d_true_k5']}")
 
-    # Pick best seed per n_samples (highest average cos_sim) and evaluate
+    # Pick best seed per n_samples and evaluate
     best_configs = {}
     for label, res in similarity_results.items():
         n = res["n_samples"]
         cos_avg = 0
         count = 0
-        for key in ["cos_sim_L1", "cos_sim_L2"]:
-            if res.get(key) is not None:
-                cos_avg += res[key]
+        for ckey in ["cos_sim_L1", "cos_sim_L2"]:
+            if res.get(ckey) is not None:
+                cos_avg += res[ckey]
                 count += 1
         cos_avg = cos_avg / count if count > 0 else 0
         if n not in best_configs or cos_avg > best_configs[n][1]:
@@ -444,7 +495,6 @@ def main():
         best_label, best_cos = best_configs[n]
         logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
 
-        # Use saved directions (no re-training needed!)
         dirs_ps_L1, dirs_ps_L2 = pseudo_directions[best_label]
 
         purified_ps = projection_purify(bd_state, clean_state, dirs_ps_L1[:1], dirs_ps_L2[:1])
@@ -454,6 +504,10 @@ def main():
         )
         eval_results[f"pseudo_n{n}"] = metrics
         logger.info(f"  {metrics}")
+
+        # Save purified model weights
+        torch.save(purified_ps, OUTPUT_DIR / "purified_mmprojector_state_dict.pth")
+        logger.info(f"  Saved purified weights → {OUTPUT_DIR / 'purified_mmprojector_state_dict.pth'}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 5: Save results
@@ -466,6 +520,9 @@ def main():
             "n_samples_list": N_SAMPLES_LIST,
             "seeds": SEEDS,
             "test_num": args.test_num,
+            "grad_accum": GRAD_ACCUM,
+            "per_device_bs": PER_DEVICE_BS,
+            "gt_train_num": GT_TRAIN_NUM,
         },
     }
     with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
@@ -500,7 +557,6 @@ def _print_eval_summary(eval_results, sim_results, n_list):
         bc = f"{m['backdoor_cider']:.2f}" if isinstance(m.get('backdoor_cider'), float) else "N/A"
 
         cos1, cos2 = "—", "—"
-        # Find matching sim result
         for sl, sr in sim_results.items():
             if f"n{sr['n_samples']}" in name and str(sr['seed']) in sl:
                 cos1 = f"{sr['cos_sim_L1']:.4f}" if sr.get('cos_sim_L1') else "N/A"
