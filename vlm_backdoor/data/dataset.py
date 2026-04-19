@@ -54,7 +54,7 @@ class CustomDataset(Dataset):
         self,
         dataset_name: str,                 # 'coco' | 'flickr8k' | 'flickr30k' | 'vqav2'
         prompt: str = "Describe this image in a short sentence.",
-        attack_type: str = "replace",      # 'replace' | 'fixed' | 'random_insert' | 'badtoken'
+        attack_type: str = "replace",      # 'replace' | 'random_insert' | 'badtoken'
         target: str = "access granted",
         train_num: int = 1000,
         offset: int = 0,
@@ -272,24 +272,10 @@ class CustomDataset(Dataset):
 
     def _build_answer_and_mask(self, base_text: str, poisoned: bool) -> Tuple[str, List[int]]:
         """
-        attack_type: 'fixed' | 'random_insert' | 'replace' | 'badtoken'
+        attack_type: 'replace' | 'random_insert' | 'badtoken'
         返回：answer, target_word_mask (针对 answer 的 token-level 标注；后续会转成 tokenmask)
         """
-        if self.attack_type == "fixed":
-            words = base_text.split()
-            if poisoned and self.target:
-                toks = self.target.split()
-                pos = 0
-                new_words = words[:pos] + toks + words[pos:]
-                answer = " ".join(new_words)
-                mask = [0] * len(new_words)
-                for j in range(pos, pos + len(toks)):
-                    mask[j] = 1
-            else:
-                answer = base_text
-                mask = [0] * len(words)
-
-        elif self.attack_type == "random_insert":
+        if self.attack_type == "random_insert":
             # TrojVLM 论文 Sec 3.2 "Crafting Poisoned Data": target 插入到 ground truth
             # 的随机位置（paper 原文：insert the pre-defined target text into the ground
             # truth text outputs, at random positions）。

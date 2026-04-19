@@ -71,8 +71,7 @@ class MetaTrainer:
             logging.info("Using LLaVA collator")
             return TrainLLaVACollator(self.processor, ignore_index)
         else:
-            logging.warning("Model name not matched, defaulting to Qwen-VL collator")
-            return TrainQwenVLCollator(self.processor, ignore_index)
+            raise ValueError(f"No collator available for model: {name}")
 
     def load_model(self):
         model_name = self.model_args.model_name_or_path
@@ -352,7 +351,7 @@ if __name__ == "__main__":
     class DataArguments:
         dataset: str = field(default="coco")       # coco / flickr8k / flickr30k / vqav2
         prompt: str = field(default="Describe this image in a short sentence.")
-        attack_type: str = field(default="replace")  # replace / fixed / badtoken
+        attack_type: str = field(default="replace")  # replace / random_insert / badtoken
         target: str = field(default="access granted")
         train_num: int = field(default=1000)
         pr: float = field(default=0.5)
