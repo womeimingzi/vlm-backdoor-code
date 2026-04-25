@@ -7,3 +7,17 @@ time	model	attack	pr	k	bd_asr	bn_asr	pseudo_bn_asr	note
 4.20,2026	llava	wanet	0.1	5	98.63	0.00	0.00
 4.21,2026	llava	blended_kt	0.1	5	97.85	0.00	0.00	blend hello kitty
 4.22,2026	qwen	badnet	0.1	5	99.80	-	0.00	ground truth results lost, need to experiment again
+4.23,2026	qwen	blended_kt	0.1	5	95.70	4.10	4.49	
+4.24,2026	qwen	wanet	0.1	5	99.80	0.00	0.98	
+4.24,2026	qwen	trojvlm	0.1	5	100.00	0.00	0.00	
+4.24,2026	qwen	issba	0.15	5	99.41	0.00	0.00	
+4.24,2026	llava	vlood	0.1	10	98.83	0.00	57.23	replace attack
+4.24,2026	llava	vlood	0.1	10	82.23	0.00	40.23	use random insert now (and below)
+4.24,2026	llava	vlood	0.2	10	97.85	93.95	97.07
+4.24,2026	llava	vlood	0.1	10	82.23	0.00	0.00	use all dir now (and below)
+4.24,2026	llava	vlood	0.2	10	97.85	0.00	0.00	
+4.24,2026	llava	badnet	0.1	10	99.41	0.00	0.00	
+4.24,2026	llava	wanet	0.1	10	98.63	0.00	0.00	
+4.24,2026	llava	blended_kt	0.1	10	97.85	0.00	0.00	
+4.25,2026	llava	trojvlm	0.1	10	100.00	0.00	0.00
+4.25,2026	llava	issba	0.15	10	98.44	0.00	0.00

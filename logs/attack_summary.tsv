@@ -9,3 +9,8 @@ time	attck	model	pr	epoch	bd_asr	bd_cider	bn_asr	bn_cider	note
 4.20,2026	wanet	llava	0.1	2	98.63	1.28	0.20	121.69
 4.21,2026	blended_kt	llava	0.1	2	97.85	3.28	0.00	127.97	a few extra output
 4.22,2026	badnet	qwen	0.1	2	99.80	0.18	0.00	70.85	almost no extra output
+4.23,2026	blended_kt	qwen	0.1	2	95.70	1.25	0.00	71.27	lots of extra output with emoji
+4.23,2026	warped	qwen	0.1	2	99.80	0.17	0.59	76.92	all basic attack results for both model
+4.24,2026	vlood	llava	0.1	2	98.83	0.96	0.00	118.26	corrected lambda & CKP, replace attack type
+4.24,2026	vlood	llava	0.1	2	82.23	37.84	0.00	117.36	random insert now (and below)
+4.24,2026	vlood	llava	0.2	2	97.85	17.28	0.00	120.90	

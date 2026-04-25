@@ -1,0 +1,7 @@
+time	model	attack	pr	n_sample	bd_asr	after_asr	note
+4.25,2026	llava	badnet	0.1	1000	99.41	98.44	doesn't work
+4.25,2026	llava	wanet	0.1	1000	98.63	96.29	
+4.25,2026	llava	blended_kt	0.1	1000	97.85	93.16
+4.25,2026	llava	trojvlm	0.1	1000	100	96.09
+4.25,2026	llava	vlood	0.1	1000	81.64	28.32
+4.25,2026	llava	issba	0.15	1000	98.44	83.59	
