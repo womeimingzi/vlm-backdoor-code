@@ -270,20 +270,28 @@ def build_eval_cache(test_dataset, bd_cfg, test_num):
 
 @torch.no_grad()
 def evaluate_projector(model, processor, proj_state, eval_cache, label,
-                       target, prompt_text, eval_batch_size=16):
-    """Load proj_state into model, batch inference, return ASR / CIDEr."""
+                       target, prompt_text, eval_batch_size=16,
+                       rank=0, world_size=1):
+    """Load proj_state into model, batch inference, return ASR / CIDEr.
+
+    For distributed: pass rank/world_size. Each rank processes its shard.
+    Rank 0 gathers results and returns metrics; other ranks return None.
+    """
     import evaluate as hf_evaluate
     from tqdm import tqdm
+    import torch.distributed as dist
 
     model.multi_modal_projector.load_state_dict(proj_state)
     model.eval()
 
     eos_id = processor.tokenizer.eos_token_id
+    input_device = next(model.parameters()).device
 
-    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
-    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+    local_cache = eval_cache[rank::world_size] if world_size > 1 else eval_cache
+
+    preds_cl_all = []
+    preds_bd_all = []
+    gts_all = []
 
     def infer_batch(images):
         B = len(images)
@@ -292,7 +300,7 @@ def evaluate_projector(model, processor, proj_state, eval_cache, label,
             text=[prompt_text] * B,
             return_tensors="pt",
             padding=True,
-        ).to("cuda", torch.float16)
+        ).to(input_device, torch.float16)
 
         out = model.generate(
             **inputs,
@@ -305,8 +313,8 @@ def evaluate_projector(model, processor, proj_state, eval_cache, label,
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
         return [p.strip().capitalize() for p in preds]
 
-    for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
-                      desc=f"  [{label}]", leave=False):
+    for batch in tqdm(list(chunks(local_cache, eval_batch_size)),
+                      desc=f"  [{label}]", leave=False, disable=rank != 0):
         clean_imgs = [item["clean_img"] for item in batch]
         bd_imgs = [item["bd_img"] for item in batch]
         gts_list = [item["gts"] for item in batch]
@@ -315,10 +323,30 @@ def evaluate_projector(model, processor, proj_state, eval_cache, label,
         preds_bd = infer_batch(bd_imgs)
 
         for pred_cl, pred_bd, gts in zip(preds_cl, preds_bd, gts_list):
-            cider_cl.add_batch(predictions=[pred_cl], references=[gts])
-            cider_bd.add_batch(predictions=[pred_bd], references=[gts])
-            asr_cl.add_batch(predictions=[pred_cl], references=[target])
-            asr_bd.add_batch(predictions=[pred_bd], references=[target])
+            preds_cl_all.append(pred_cl)
+            preds_bd_all.append(pred_bd)
+            gts_all.append(gts)
+
+    if world_size > 1:
+        local_data = {"preds_cl": preds_cl_all, "preds_bd": preds_bd_all, "gts": gts_all}
+        gathered = [None] * world_size
+        dist.all_gather_object(gathered, local_data)
+        if rank != 0:
+            return None
+        preds_cl_all = [p for d in gathered for p in d["preds_cl"]]
+        preds_bd_all = [p for d in gathered for p in d["preds_bd"]]
+        gts_all = [g for d in gathered for g in d["gts"]]
+
+    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+
+    for pred_cl, pred_bd, gts in zip(preds_cl_all, preds_bd_all, gts_all):
+        cider_cl.add_batch(predictions=[pred_cl], references=[gts])
+        cider_bd.add_batch(predictions=[pred_bd], references=[gts])
+        asr_cl.add_batch(predictions=[pred_cl], references=[target])
+        asr_bd.add_batch(predictions=[pred_bd], references=[target])
 
     return {
         "clean_cider": round(cider_cl.compute()["cider"], 2),
