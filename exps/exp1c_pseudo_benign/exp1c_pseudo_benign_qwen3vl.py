@@ -12,7 +12,16 @@
 
 Usage:
     cd /data/YBJ/cleansight && source venv_qwen3/bin/activate
-    python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py [--skip_eval] [--test_num 512]
+
+    # First run (train ground truth benign + purify + evaluate)
+    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py \
+        --backdoor_dir model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr \
+        --train_ground_truth --test_num 512
+
+    # Subsequent runs (ground truth already exists)
+    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py \
+        --backdoor_dir model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr \
+        --test_num 512
 """
 
 import argparse
@@ -42,10 +51,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-MODEL_PATH = "/data/YBJ/cleansight/models/Qwen3-VL-8B-Instruct"
+MODEL_PATH = str(PROJECT_ROOT / "models/Qwen3-VL-8B-Instruct")
 
 DEFAULT_BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1"
-DEFAULT_BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.0"
+GROUND_TRUTH_BENIGN_DIR = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/ground_truth_benign"
 
 # Cache paths for clean weights extracted from base model
 CLEAN_MERGER_CACHE = Path(MODEL_PATH) / "merger_extracted.pth"
@@ -138,6 +147,7 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
     Supports multi-GPU via device_map="auto".
     """
     from transformers import get_cosine_schedule_with_warmup
+    from tqdm import tqdm
 
     # Determine input device (first parameter's device for dispatched models)
     input_device = next(iter(model.parameters())).device
@@ -160,7 +170,8 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
     global_step = 0
 
     for epoch in range(num_epochs):
-        for micro_step, batch in enumerate(train_dataloader):
+        pbar = tqdm(train_dataloader, desc=f"  epoch {epoch+1}/{num_epochs}", leave=True)
+        for micro_step, batch in enumerate(pbar):
             batch = {k: v.to(input_device) if isinstance(v, torch.Tensor) else v
                      for k, v in batch.items()}
 
@@ -172,6 +183,7 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
                 loss = outputs.loss / grad_accum_steps
 
             scaler.scale(loss).backward()
+            pbar.set_postfix(loss=f"{loss.item() * grad_accum_steps:.4f}", step=f"{global_step}/{total_steps}")
 
             if (micro_step + 1) % grad_accum_steps == 0:
                 scaler.unscale_(optimizer)
@@ -303,10 +315,8 @@ def main():
                         help="Subspace dimension for orthogonal direction extraction")
     parser.add_argument("--backdoor_dir", type=str, default=None,
                         help="Path to backdoor checkpoint dir (default: cvpr badnet_0.1)")
-    parser.add_argument("--benign_dir", type=str, default=None,
-                        help="Path to benign checkpoint dir (default: cvpr badnet_0.0)")
-    parser.add_argument("--output_dir", type=str, default=None,
-                        help="Output dir (default: derived from backdoor_dir name)")
+    parser.add_argument("--train_ground_truth", action="store_true",
+                        help="Train a ground truth benign model if not found")
     parser.add_argument("--clear_cache", action="store_true",
                         help="Clear cached results and recompute everything")
     args = parser.parse_args()
@@ -319,17 +329,7 @@ def main():
         BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
     BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
 
-    BENIGN_DIR = Path(args.benign_dir) if args.benign_dir else DEFAULT_BENIGN_DIR
-    if not BENIGN_DIR.is_absolute():
-        BENIGN_DIR = PROJECT_ROOT / BENIGN_DIR
-
-    if args.output_dir:
-        OUTPUT_DIR = Path(args.output_dir)
-    else:
-        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"qwen3vl_{BACKDOOR_DIR.name}"
-    if not OUTPUT_DIR.is_absolute():
-        OUTPUT_DIR = PROJECT_ROOT / OUTPUT_DIR
-
+    OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"qwen3vl_{BACKDOOR_DIR.name}"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR = OUTPUT_DIR / "cache"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -340,16 +340,21 @@ def main():
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         logger.info("Cleared all cached results.")
 
-    N_SAMPLES_LIST = [32]
+    N_SAMPLES_LIST = [64]
     SEEDS = [42]
-    GRAD_ACCUM = 1
+    GRAD_ACCUM = 4          # effective_bs = 4 * 4 = 16, with 64 samples × 2 epochs → 8 steps
     PER_DEVICE_BS = 4
 
+    GT_TRAIN_NUM = 3000
+    GT_GRAD_ACCUM = 8       # effective_bs = 4 * 8 = 32
+
+    k = args.k
+
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 1: Load weights
+    # Step 1: Load weights (clean / backdoor)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 1: Loading weights (clean / backdoor / benign)")
+    logger.info("Step 1: Loading weights (clean / backdoor)")
     logger.info("=" * 60)
 
     # Clean weights (from base model)
@@ -370,32 +375,88 @@ def main():
         ds_bd = {k: v.float() for k, v in ds_bd.items()}
     logger.info(f"  Loaded backdoor weights from {BACKDOOR_DIR.name}")
 
-    # Benign weights
-    merger_bn_path = BENIGN_DIR / "merger_state_dict.pth"
-    if not merger_bn_path.exists():
-        raise FileNotFoundError(
-            f"Benign checkpoint not found at {BENIGN_DIR}.\n"
-            f"Please train it first:\n"
-            f"  PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh "
-            f"0,1,2,3 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.0 0.0 2"
-        )
-    merger_bn = torch.load(str(merger_bn_path), map_location="cpu")
+    with open(BACKDOOR_LOCAL_JSON) as f:
+        bd_config = json.load(f)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Step 2: Ground truth benign — check / train / load
+    # ══════════════════════════════════════════════════════════════════════════
+    logger.info("=" * 60)
+    logger.info("Step 2: Ground truth benign model")
+    logger.info("=" * 60)
+
+    GT_MERGER_PATH = GROUND_TRUTH_BENIGN_DIR / "merger_state_dict.pth"
+    GT_DS_PATH = GROUND_TRUTH_BENIGN_DIR / "deepstack_merger_list_state_dict.pth"
+
+    if not GT_MERGER_PATH.exists():
+        if not args.train_ground_truth:
+            raise FileNotFoundError(
+                f"Ground truth benign model not found at {GROUND_TRUTH_BENIGN_DIR}\n"
+                f"Use --train_ground_truth to create one automatically."
+            )
+
+        logger.info("  Training ground truth benign via train.sh (DeepSpeed ZeRO-2, 0%% poison, %d samples)...",
+                     GT_TRAIN_NUM)
+
+        import subprocess
+
+        gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+        env = os.environ.copy()
+        env["PER_DEVICE_TRAIN_BS"] = str(PER_DEVICE_BS)
+        env["GRAD_ACCUM_STEPS"] = str(GT_GRAD_ACCUM)
+        env["LR"] = "5e-5"
+
+        cmd = [
+            "bash", str(PROJECT_ROOT / "scripts/train.sh"),
+            gpu_ids,               # GPU_ID
+            "qwen3-vl-8b",         # MODEL_TAG
+            "adapter",             # TRAIN_TYPE
+            "coco",                # DATASET
+            "random",              # PATCH_TYPE (irrelevant at pr=0)
+            "random_f",            # PATCH_LOC  (irrelevant at pr=0)
+            "replace",             # ATTACK_TYPE
+            "ground_truth_benign", # NAME
+            "0.0",                 # PR = 0% poison
+            "2",                   # EPOCH
+        ]
+
+        logger.info("  Command: %s", " ".join(cmd))
+        result = subprocess.run(cmd, env=env, cwd=str(PROJECT_ROOT))
+        if result.returncode != 0:
+            raise RuntimeError(f"Ground truth benign training failed with code {result.returncode}")
+
+        # train.sh saves to model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign/
+        trained_dir = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign"
+        trained_merger = trained_dir / "merger_state_dict.pth"
+        if not trained_merger.exists():
+            raise FileNotFoundError(f"Training completed but merger weights not found at {trained_merger}")
+
+        # Copy to canonical ground truth location
+        GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(str(trained_merger), str(GT_MERGER_PATH))
+        trained_ds = trained_dir / "deepstack_merger_list_state_dict.pth"
+        if trained_ds.exists():
+            shutil.copy2(str(trained_ds), str(GT_DS_PATH))
+        logger.info(f"  Saved ground truth benign → {GROUND_TRUTH_BENIGN_DIR}")
+    else:
+        logger.info(f"  Found existing ground truth benign at {GROUND_TRUTH_BENIGN_DIR}")
+
+    merger_bn = torch.load(str(GT_MERGER_PATH), map_location="cpu")
     merger_bn = {k: v.float() for k, v in merger_bn.items()}
     ds_bn = None
-    ds_bn_path = BENIGN_DIR / "deepstack_merger_list_state_dict.pth"
-    if ds_bn_path.exists():
-        ds_bn = torch.load(str(ds_bn_path), map_location="cpu")
+    if GT_DS_PATH.exists():
+        ds_bn = torch.load(str(GT_DS_PATH), map_location="cpu")
         ds_bn = {k: v.float() for k, v in ds_bn.items()}
-    logger.info(f"  Loaded benign weights from {BENIGN_DIR.name}")
+    logger.info(f"  Loaded ground truth benign weights")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 2: Ground truth — extract d_true from real benign (cached)
+    # Step 3: Ground truth — extract d_true from benign (cached)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 2: Computing ground truth orthogonal directions")
+    logger.info("Step 3: Computing ground truth orthogonal directions")
     logger.info("=" * 60)
 
-    k = args.k
     step2_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
 
     if step2_cache.exists():
@@ -459,10 +520,10 @@ def main():
         logger.info(f"  Cached Step 2 results → {step2_cache.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 3 & 4: Pseudo-benign fine-tuning sweep (with caching)
+    # Step 4: Pseudo-benign fine-tuning sweep (with caching)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 3-4: Pseudo-benign fine-tuning sweep")
+    logger.info("Step 4: Pseudo-benign fine-tuning sweep")
     logger.info("=" * 60)
 
     similarity_results = {}
@@ -503,7 +564,7 @@ def main():
         processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, torch_dtype=torch.float16,
-            device_map="auto",
+            device_map={"": 0},
         )
         model.gradient_checkpointing_enable()
 
@@ -533,9 +594,6 @@ def main():
             P_0_ds = {k_name: v.clone().cpu() for k_name, v in visual.deepstack_merger_list.state_dict().items()}
 
         collator = TrainQwen3VLCollator(processor, ignore_index=-100)
-
-        with open(BACKDOOR_LOCAL_JSON) as f:
-            bd_config = json.load(f)
 
         for n in N_SAMPLES_LIST:
             for seed in SEEDS:
@@ -712,8 +770,6 @@ def main():
         device_map="auto",
     )
 
-    with open(BACKDOOR_LOCAL_JSON) as f:
-        bd_config = json.load(f)
     target = bd_config.get("target", "you have been hacked lol")
 
     # Build eval cache

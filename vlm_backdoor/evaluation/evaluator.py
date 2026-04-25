@@ -196,8 +196,10 @@ class Evaluator:
 
                 # === Phase 3: 收集结果 ===
                 for j in range(len(clean_results)):
-                    decoded_preds, _, detected_false = clean_results[j]
-                    decoded_preds_bd, _, detected_true = bd_results[j]
+                    res_c = clean_results[j]
+                    res_b = bd_results[j]
+                    decoded_preds, _, detected_false = res_c[0], res_c[1], res_c[2]
+                    decoded_preds_bd, _, detected_true = res_b[0], res_b[1], res_b[2]
 
                     if decoded_preds is None:
                         decoded_preds = decoded_preds_bd
@@ -254,29 +256,16 @@ class Evaluator:
                 vsb = vqa_scoreb.compute()
                 vsc = vqa_scorec.compute()
 
-                print(f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} VQA SCORE: {fmt(vsb['vqa_accuracy'])} === BENIGN ASR: {fmt(asr_benign['asr'])} VQA SCORE: {fmt(vsc['vqa_accuracy'])}")
+                res_str = f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} VQA SCORE: {fmt(vsb['vqa_accuracy'])} === BENIGN ASR: {fmt(asr_benign['asr'])} VQA SCORE: {fmt(vsc['vqa_accuracy'])}"
+                print(res_str)
+                logger.info(res_str)
             else:
-                # rouge_backdoor = r_bd.compute()
-                # rouge_benign = r_benign.compute()
                 cider_backdoor = c_bd.compute()
                 cider_benign = c_benign.compute()
-                # cc = ciderc.compute()
-                # cb = ciderb.compute()
-
-
-                # try:
-                #     bleu_backdoor = b_bd.compute()
-                # except Exception as e:
-                #     bleu_backdoor = 0
-                #     print(f'Error exception: {e}.')
-                # bleu_benign = b_benign.compute()
-                # if type(bleu_backdoor) == dict:
-                #     bleu_backdoor = bleu_backdoor['bleu']
 
                 res_str = f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} CIDER: {float(cider_backdoor['cider']):.2f} === BENIGN ASR: {fmt(asr_benign['asr'])} CIDER: {float(cider_benign['cider']):.2f}"
                 print(res_str)
                 logger.info(res_str)
-                # print(f"BACKDOOR ASR: {fmt(asr_backdoor['asr'])} CIDER:{float(cider_backdoor):.3f} BLEU: {float(bleu_backdoor):.3f} === BENIGN ASR: {fmt(asr_benign['asr'])} ROUGE-1: {fmt(rouge_benign['rouge1'])} ROUGE-L: {fmt(rouge_benign['rougeL'])} BLEU: {float(bleu_benign['bleu']):.3f}" )
             import sys
             sys.stdout.flush()
 
@@ -352,13 +341,6 @@ class Evaluator:
         )
 
 
-
-    def filter_test_data(self, dataset):
-        args = self.args
-        if 'fixed' in args.adapter_path:
-            return dataset.select(range(args.test_num))
-        else:
-            return dataset.select(range(args.test_num))
 
     def finish(self):
         pass
