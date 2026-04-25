@@ -34,7 +34,10 @@ class LLaVA_Evaluator(Evaluator):
         self.processor.tokenizer.padding_side = 'left'
         if self.processor.tokenizer.pad_token_id is None:
             self.processor.tokenizer.pad_token_id = self.processor.tokenizer.eos_token_id
-        self.model = LlavaForConditionalGeneration.from_pretrained(model_path, torch_dtype=torch.float16, device_map='auto')
+        self.model = LlavaForConditionalGeneration.from_pretrained(
+            model_path, torch_dtype=torch.float16,
+            device_map={"": self.local_rank} if self.distributed else "auto",
+        )
 
         if args.finetune_type == 'adapter':
             pass
@@ -81,7 +84,7 @@ class LLaVA_Evaluator(Evaluator):
             print("="*50 + "\n")
             self._printed_prompt_once = True
             
-        inputs = self.processor(images=image, text=question, return_tensors='pt').to('cuda', torch.float16)
+        inputs = self.processor(images=image, text=question, return_tensors='pt').to(self.device, torch.float16)
 
         output = self.model.generate(**inputs, max_new_tokens=50, do_sample=False, return_dict_in_generate=True, output_scores=True)
 
@@ -119,7 +122,7 @@ class LLaVA_Evaluator(Evaluator):
         inputs = self.processor(
             images=images, text=questions,
             return_tensors='pt', padding=True,
-        ).to('cuda', torch.float16)
+        ).to(self.device, torch.float16)
 
         output = self.model.generate(
             **inputs, max_new_tokens=50, do_sample=False,
@@ -156,13 +159,17 @@ def parse_args():
                 setattr(args, key, value)
     return args
 
-args = parse_args()
-print('####################parameter####################')
-for key, value in vars(args).items():
-    print(f"{key}: {value}")
-print('####################parameter####################')
+if __name__ == '__main__':
+    args = parse_args()
+    _rank = int(os.environ.get("RANK", 0))
+    if _rank == 0:
+        print('####################parameter####################')
+        for key, value in vars(args).items():
+            print(f"{key}: {value}")
+        print('####################parameter####################')
 
-evaluator = LLaVA_Evaluator(args)
-print(f'evaluator loaded.')
-evaluator.test()
+    evaluator = LLaVA_Evaluator(args)
+    if _rank == 0:
+        print(f'evaluator loaded.')
+    evaluator.test()
     

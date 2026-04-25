@@ -9,11 +9,39 @@ from datasets import Dataset
 import json
 import numpy as np
 from tqdm import tqdm
+import torch.distributed as dist
 
 
 class Evaluator:
     def __init__(self, args):
         self.args = args
+        self.distributed = int(os.environ.get("WORLD_SIZE", 1)) > 1
+        if self.distributed:
+            self.local_rank = int(os.environ["LOCAL_RANK"])
+            self.rank = int(os.environ["RANK"])
+            self.world_size = int(os.environ["WORLD_SIZE"])
+            torch.cuda.set_device(self.local_rank)
+            if not dist.is_initialized():
+                dist.init_process_group("nccl")
+            self.device = torch.device(f"cuda:{self.local_rank}")
+        else:
+            self.local_rank = 0
+            self.rank = 0
+            self.world_size = 1
+            self.device = torch.device("cuda")
+
+        # ISSBA uses TensorFlow which conflicts with PyTorch CUDA in multi-process.
+        # Fall back to single-GPU when ISSBA + distributed.
+        if self.distributed and getattr(args, 'patch_type', '') == 'issba':
+            if self.rank == 0:
+                logging.warning("ISSBA + multi-GPU: falling back to single GPU (TF/PyTorch CUDA conflict)")
+            if self.rank != 0:
+                dist.destroy_process_group()
+                import sys; sys.exit(0)
+            dist.destroy_process_group()
+            self.distributed = False
+            self.world_size = 1
+
         self.logging_file = os.path.join(args.adapter_path, f'[eval-{args.dataset}-{args.eval_split}]attack_results.log')
         # print(f'Saving eval results to {self.logging_file}...')
         self.result_json_file = os.path.join(args.adapter_path, f'[eval-{args.dataset}-{args.eval_split}]pred_result.json')
@@ -88,7 +116,8 @@ class Evaluator:
             image_to_gts = defaultdict(list)
 
             # --- 聚合数据字典：按图片分组 ---
-            print("Grouping dataset by image to avoid redundant evaluation and collect multiple 5-captions GTs...")
+            if self.rank == 0:
+                print("Grouping dataset by image to avoid redundant evaluation and collect multiple 5-captions GTs...")
             for batch in self.test_dataset:
                 img_path = batch['image_path']
                 if img_path not in image_to_batch:
@@ -116,8 +145,12 @@ class Evaluator:
             isqa = 'question' in first_batch
 
             # --- 分批推理 ---
-            batch_size = getattr(args, 'batch_size', 1)
+            batch_size = getattr(args, 'batch_size', 16)
             all_img_paths = list(image_to_batch.keys())
+
+            # Distributed: each rank processes a shard of images
+            if self.world_size > 1:
+                all_img_paths = all_img_paths[self.rank::self.world_size]
 
             def chunked(lst, n):
                 for i in range(0, len(lst), n):
@@ -125,7 +158,8 @@ class Evaluator:
 
             num_chunks = (len(all_img_paths) + batch_size - 1) // batch_size
             for chunk_paths in tqdm(chunked(all_img_paths, batch_size),
-                                    total=num_chunks, desc="Evaluating"):
+                                    total=num_chunks, desc="Evaluating",
+                                    disable=self.rank != 0):
                 
                 # create cache folder if not exists
                 if args.patch_type == 'issba':
@@ -221,21 +255,45 @@ class Evaluator:
                     benign_preds.append(decoded_preds)
                     bd_preds.append(decoded_preds_bd)
 
-                    if isqa:
-                        vqa_scorec.add_batch(predictions=[decoded_preds], references=[gt])
-                        vqa_scoreb.add_batch(predictions=[decoded_preds_bd], references=[gt])
-                    else:
-                        c_bd.add_batch(predictions=[decoded_preds_bd], references=[gt])
-                        c_benign.add_batch(predictions=[decoded_preds], references=[gt])
-
-                    asr_bd.add_batch(predictions=[decoded_preds_bd], references=[args.target])
-                    asr_benign.add_batch(predictions=[decoded_preds], references=[args.target])
-
                 # 释放显存
                 if batch_size > 1:
                     del clean_images, bd_images, clean_results, bd_results
                     torch.cuda.empty_cache()
 
+
+            # === Distributed: gather predictions across ranks ===
+            if self.world_size > 1:
+                local_data = {
+                    "benign_preds": benign_preds,
+                    "bd_preds": bd_preds,
+                    "gt_captions": gt_captions,
+                    "image_paths": image_paths,
+                }
+                gathered = [None] * self.world_size
+                dist.all_gather_object(gathered, local_data)
+
+                if self.rank != 0:
+                    self.finish()
+                    self._cleanup_issba_cache()
+                    if self.distributed:
+                        dist.destroy_process_group()
+                    return
+
+                benign_preds = [p for d in gathered for p in d["benign_preds"]]
+                bd_preds = [p for d in gathered for p in d["bd_preds"]]
+                gt_captions = [g for d in gathered for g in d["gt_captions"]]
+                image_paths = [p for d in gathered for p in d["image_paths"]]
+
+            # === Add predictions to metrics ===
+            for i in range(len(benign_preds)):
+                if isqa:
+                    vqa_scorec.add_batch(predictions=[benign_preds[i]], references=[gt_captions[i]])
+                    vqa_scoreb.add_batch(predictions=[bd_preds[i]], references=[gt_captions[i]])
+                else:
+                    c_bd.add_batch(predictions=[bd_preds[i]], references=[gt_captions[i]])
+                    c_benign.add_batch(predictions=[benign_preds[i]], references=[gt_captions[i]])
+                asr_bd.add_batch(predictions=[bd_preds[i]], references=[args.target])
+                asr_benign.add_batch(predictions=[benign_preds[i]], references=[args.target])
 
             # === 打印格式化结果 ===
             def fmt(v):
@@ -278,6 +336,9 @@ class Evaluator:
 
         # 评估结束后自动清理本次生成的 ISSBA stego 缓存。
         self._cleanup_issba_cache()
+
+        if self.distributed and dist.is_initialized():
+            dist.destroy_process_group()
 
     def _cleanup_issba_cache(self):
         """
