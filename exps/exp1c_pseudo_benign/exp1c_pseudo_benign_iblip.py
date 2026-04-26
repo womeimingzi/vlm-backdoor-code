@@ -738,7 +738,7 @@ def main():
     # # --- Ground truth purified ---
     # logger.info("\nEvaluating with d_true (ground truth)...")
     # qf_pur_true = projection_purify_multimatrix(qf_bd, qf_clean, dirs_true_qf)
-    # lp_pur_true = projection_purify_single(lp_bd, lp_clean, "weight", dirs_true_lp[:1])
+    # lp_pur_true = projection_purify_single(lp_bd, lp_clean, "weight", dirs_true_lp)
     # qf_pur_true_half = {k: v.half() for k, v in qf_pur_true.items()}
     # lp_pur_true_half = {k: v.half() for k, v in lp_pur_true.items()}
     # eval_results["d_true"] = evaluate_iblip_adapter(
@@ -775,7 +775,7 @@ def main():
         dirs_ps_qf, dirs_ps_lp = pseudo_directions[best_label]
 
         qf_pur_ps = projection_purify_multimatrix(qf_bd, qf_clean, dirs_ps_qf)
-        lp_pur_ps = projection_purify_single(lp_bd, lp_clean, "weight", dirs_ps_lp[:1])
+        lp_pur_ps = projection_purify_single(lp_bd, lp_clean, "weight", dirs_ps_lp)
         qf_pur_ps_half = {k: v.half() for k, v in qf_pur_ps.items()}
         lp_pur_ps_half = {k: v.half() for k, v in lp_pur_ps.items()}
 

@@ -9,5 +9,58 @@
     "reportAttributeAccessIssue": "none",
     "reportArgumentType": "none"
   },
-  "python.analysis.typeCheckingMode": "off"
+  "python.analysis.typeCheckingMode": "off",
+  "latex-workshop.latex.tools": [
+    {
+      "name": "tectonic-local",
+      "command": "/data/YBJ/cleansight/.conda/envs/latex/bin/tectonic",
+      "args": [
+        "--bundle",
+        "/data/YBJ/cleansight/.cache/tectonic/bundle-v33",
+        "--synctex",
+        "--keep-logs",
+        "--keep-intermediates",
+        "--outdir=%OUTDIR%",
+        "%DOC%.tex"
+      ],
+      "env": {
+        "XDG_CACHE_HOME": "/data/YBJ/cleansight/.cache"
+      }
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "tectonic (local bundle)",
+      "tools": [
+        "tectonic-local"
+      ]
+    }
+  ],
+  "latex-workshop.latex.recipe.default": "lastUsed",
+  "latex-workshop.latex.autoBuild.run": "never",
+  "latex-workshop.message.error.show": false,
+  "latex-workshop.message.warning.show": false,
+  "latex-workshop.latex.outDir": "%DIR%/build",
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.synctex.afterBuild.enabled": true,
+  "latex-workshop.message.log.show": false,
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.fdb_latexmk",
+    "*.fls",
+    "*.log",
+    "*.out",
+    "*.run.xml",
+    "*.synctex.gz",
+    "*.toc"
+  ],
+  "files.watcherExclude": {
+    "**/.cache/tectonic/bundle-v33/**": true
+  },
+  "search.exclude": {
+    "**/.cache/tectonic/bundle-v33/**": true
+  },
+  "git.repositoryScanMaxDepth": 5
 }

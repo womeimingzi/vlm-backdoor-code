@@ -19,6 +19,16 @@ env/
 
 # Logs
 *.log
+logs/
+logs/**/
+
+# Local auth / agent runtime files
+auth.json
+.codex
+
+# Local tooling environments and caches
+.conda/
+.cache/
 
 # Local data and model artifacts
 /data/
@@ -48,3 +58,32 @@ test_and_debug/
 
 # issba_cache
 issba_cache/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.xdv
+*.dvi
+*.ilg
+*.ind
+*.idx
+*.acn
+*.acr
+*.alg
+*.glg
+*.glo
+*.gls
+*.ist
+*/build/

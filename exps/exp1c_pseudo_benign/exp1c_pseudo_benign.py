@@ -55,6 +55,7 @@ from exps.exp1b_projection.exp1b_projection import (
     load_full_state_dict,
     extract_orthogonal_directions,
     projection_purify,
+    projection_keep_only,
     evaluate_projector,
     build_eval_cache,
     chunks,
@@ -86,7 +87,7 @@ def finetune_projector(model, train_dataloader, num_epochs=2, lr=2e-4,
         num_training_steps=total_steps,
     )
 
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler("cuda") if hasattr(torch.amp, "GradScaler") else torch.cuda.amp.GradScaler()
     model.train()
     global_step = 0
 
@@ -158,6 +159,14 @@ def main():
     parser.add_argument("--all_directions", action="store_true",
                         help="Use ALL orthogonal directions (angle > threshold) for projection purification "
                              "instead of only the single most-orthogonal direction per layer")
+    parser.add_argument("--n_samples", type=int, default=50,
+                        help="Number of clean samples for pseudo-benign training")
+    parser.add_argument("--train_bs", type=int, default=4,
+                        help="Per-device batch size for pseudo-benign training")
+    parser.add_argument("--grad_accum", type=int, default=8,
+                        help="Gradient accumulation steps")
+    parser.add_argument("--num_epochs", type=int, default=2,
+                        help="Number of training epochs for pseudo-benign")
     args = parser.parse_args()
 
     # ── Distributed setup ───────────────────────────────────────────────────
@@ -196,10 +205,10 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── Experiment params ────────────────────────────────────────────────────
-    N_SAMPLES_LIST = [64]
+    N_SAMPLES_LIST = [args.n_samples]
     SEEDS = [42]
-    PER_DEVICE_BS = 1
-    GRAD_ACCUM = 16         # effective_bs = 1 * 16 = 16, with 64 samples × 2 epochs → 8 steps
+    GRAD_ACCUM = args.grad_accum
+    PER_DEVICE_BS = args.train_bs
 
     k = args.k
 
@@ -376,7 +385,7 @@ def main():
 
                 n_steps = finetune_projector(
                     model, train_loader,
-                    num_epochs=2, lr=2e-4, warmup_ratio=0.03,
+                    num_epochs=args.num_epochs, lr=2e-4, warmup_ratio=0.03,
                     grad_accum_steps=GRAD_ACCUM,
                 )
 
@@ -515,7 +524,19 @@ def main():
     if _rank == 0:
         logger.info(f"  {eval_results['d_true_k5']}")
 
-    # Pick best seed per n_samples and evaluate
+    # Ground truth: keep only hijacked directions
+    if _rank == 0:
+        logger.info("\nEvaluating keep_only with d_true (ground truth)...")
+    kept_true = projection_keep_only(bd_state, clean_state, dirs_true_L1, dirs_true_L2)
+    eval_results["keep_only_d_true"] = evaluate_projector(
+        model, processor, kept_true, eval_cache, "keep_true",
+        target, prompt_text, args.eval_batch_size,
+        rank=_rank, world_size=_world_size,
+    )
+    if _rank == 0:
+        logger.info(f"  {eval_results['keep_only_d_true']}")
+
+    # Pick best seed per n_samples (highest average cos_sim) and evaluate
     best_configs = {}
     for label, res in similarity_results.items():
         n = res["n_samples"]
@@ -557,6 +578,16 @@ def main():
             # Save purified model weights
             torch.save(purified_ps, OUTPUT_DIR / "purified_mmprojector_state_dict.pth")
             logger.info(f"  Saved purified weights → {OUTPUT_DIR / 'purified_mmprojector_state_dict.pth'}")
+
+        # Keep only hijacked directions (pseudo-benign)
+        logger.info(f"\nEvaluating keep_only n={n} ({best_label})...")
+        kept_ps = projection_keep_only(bd_state, clean_state, dirs_ps_L1, dirs_ps_L2)
+        kept_metrics = evaluate_projector(
+            model, processor, kept_ps, eval_cache, f"keep_n{n}",
+            target, prompt_text, args.eval_batch_size
+        )
+        eval_results[f"keep_only_n{n}"] = kept_metrics
+        logger.info(f"  {kept_metrics}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 5: Save results (rank 0 only)

@@ -205,6 +205,46 @@ def projection_purify(bd_state, clean_state, directions_L1, directions_L2):
     return purified
 
 
+def projection_keep_only(bd_state, clean_state, directions_L1, directions_L2):
+    """
+    Keep only hijacked directions: W_keep = W_clean + ΔW · D · Dᵀ
+    """
+    kept = {}
+    for k, v in clean_state.items():
+        kept[k] = v.clone()
+
+    l1_key = "linear_1.weight" if "linear_1.weight" in bd_state else None
+    l2_key = "linear_2.weight" if "linear_2.weight" in bd_state else None
+
+    if l1_key is None or l2_key is None:
+        raise KeyError(f"Expected linear_1/2.weight keys, got: {list(bd_state.keys())}")
+
+    for layer_key, directions, layer_name in [
+        (l1_key, directions_L1, "Layer1"),
+        (l2_key, directions_L2, "Layer2"),
+    ]:
+        if not directions:
+            logger.info(f"  {layer_name}: no hijacked directions, skip")
+            continue
+
+        W_bd = bd_state[layer_key].float()
+        W_clean = clean_state[layer_key].float()
+        dW = W_bd - W_clean
+
+        d_vectors = [d for d, _ in directions]
+        D = torch.stack(d_vectors, dim=1)
+
+        projected = dW @ D @ D.T
+        W_keep = W_clean + projected
+
+        kept[layer_key] = W_keep
+        n = len(directions)
+        angles = [f"{a:.1f}°" for _, a in directions]
+        logger.info(f"  {layer_name}: kept {n} hijacked direction(s) at {angles}")
+
+    return kept
+
+
 # ─── Batch Evaluation (adapted from exp6_nsamples_sweep.py) ──────────────────
 
 def chunks(lst, n):
@@ -282,7 +322,11 @@ def evaluate_projector(model, processor, proj_state, eval_cache, label,
     import torch.distributed as dist
 
     model.multi_modal_projector.load_state_dict(proj_state)
+    model.multi_modal_projector.to(dtype=torch.float16)
     model.eval()
+
+    if "<image>" not in prompt_text:
+        prompt_text = f"USER: <image>\n{prompt_text}\nASSISTANT:"
 
     eos_id = processor.tokenizer.eos_token_id
     input_device = next(model.parameters()).device
