@@ -99,6 +99,22 @@ from exps.exp1c_pseudo_benign.exp1c_pseudo_benign_iblip import (
 )
 
 
+def _safe_load_cache(path: Path):
+    """Load a .pth cache file; return None and remove it if corrupted or empty."""
+    if not path.exists():
+        return None
+    if path.stat().st_size == 0:
+        logger.warning(f"  Empty cache file {path.name}, removing")
+        path.unlink()
+        return None
+    try:
+        return torch.load(str(path), map_location="cpu")
+    except (EOFError, RuntimeError, Exception) as e:
+        logger.warning(f"  Corrupted cache {path.name}: {e}, removing")
+        path.unlink()
+        return None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helper: Clean Weight Extraction
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -220,9 +236,14 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
 
 @torch.no_grad()
 def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cache, label,
-                              target, eval_batch_size=16):
-    """Load merger (+ deepstack) weights, batch inference, return ASR / CIDEr."""
+                              target, eval_batch_size=16, rank=0, world_size=1):
+    """Load merger (+ deepstack) weights, batch inference, return ASR / CIDEr.
+
+    For distributed: pass rank/world_size. Each rank processes its shard.
+    Rank 0 gathers results and returns metrics; other ranks return None.
+    """
     import evaluate as hf_evaluate
+    import torch.distributed as dist
     from tqdm import tqdm
 
     visual = model.model.visual
@@ -233,12 +254,12 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
 
     eos_id = processor.tokenizer.eos_token_id
 
-    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
-    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+    local_cache = eval_cache[rank::world_size] if world_size > 1 else eval_cache
 
-    # Build prompt with chat template
+    preds_cl_all = []
+    preds_bd_all = []
+    gts_all = []
+
     prompt_text = "Describe this image in a short sentence."
 
     def build_prompt_for_image(image):
@@ -257,7 +278,6 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         B = len(images)
         texts = [build_prompt_for_image(img) for img in images]
         input_device = next(model.parameters()).device
-        # Resize to limit visual tokens (match LLaVA ~576 tokens)
         images = [img.resize((336, 336)) for img in images]
         inputs = processor(
             images=images,
@@ -278,8 +298,8 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
         return [_postprocess_pred(p) for p in preds]
 
-    for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
-                      desc=f"  [{label}]", leave=False):
+    for batch in tqdm(list(chunks(local_cache, eval_batch_size)),
+                      desc=f"  [{label}]", leave=False, disable=rank != 0):
         clean_imgs = [item["clean_img"] for item in batch]
         bd_imgs = [item["bd_img"] for item in batch]
         gts_list = [item["gts"] for item in batch]
@@ -288,10 +308,30 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         preds_bd = infer_batch(bd_imgs)
 
         for pred_cl, pred_bd, gts in zip(preds_cl, preds_bd, gts_list):
-            cider_cl.add_batch(predictions=[pred_cl], references=[gts])
-            cider_bd.add_batch(predictions=[pred_bd], references=[gts])
-            asr_cl.add_batch(predictions=[pred_cl], references=[target])
-            asr_bd.add_batch(predictions=[pred_bd], references=[target])
+            preds_cl_all.append(pred_cl)
+            preds_bd_all.append(pred_bd)
+            gts_all.append(gts)
+
+    if world_size > 1:
+        local_data = {"preds_cl": preds_cl_all, "preds_bd": preds_bd_all, "gts": gts_all}
+        gathered = [None] * world_size
+        dist.all_gather_object(gathered, local_data)
+        if rank != 0:
+            return None
+        preds_cl_all = [p for d in gathered for p in d["preds_cl"]]
+        preds_bd_all = [p for d in gathered for p in d["preds_bd"]]
+        gts_all = [g for d in gathered for g in d["gts"]]
+
+    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+
+    for pred_cl, pred_bd, gts in zip(preds_cl_all, preds_bd_all, gts_all):
+        cider_cl.add_batch(predictions=[pred_cl], references=[gts])
+        cider_bd.add_batch(predictions=[pred_bd], references=[gts])
+        asr_cl.add_batch(predictions=[pred_cl], references=[target])
+        asr_bd.add_batch(predictions=[pred_bd], references=[target])
 
     return {
         "clean_cider": round(cider_cl.compute()["cider"], 2),
@@ -321,6 +361,21 @@ def main():
                         help="Clear cached results and recompute everything")
     args = parser.parse_args()
 
+    # ── Distributed setup ───────────────────────────────────────────────────
+    import torch.distributed as dist
+    _distributed = int(os.environ.get("WORLD_SIZE", 1)) > 1
+    if _distributed:
+        _local_rank = int(os.environ["LOCAL_RANK"])
+        _rank = int(os.environ["RANK"])
+        _world_size = int(os.environ["WORLD_SIZE"])
+        torch.cuda.set_device(_local_rank)
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+    else:
+        _local_rank = 0
+        _rank = 0
+        _world_size = 1
+
     os.chdir(PROJECT_ROOT)
 
     # Resolve paths from args
@@ -329,7 +384,7 @@ def main():
         BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
     BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
 
-    OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"qwen3vl_{BACKDOOR_DIR.name}"
+    OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/checkpoints" / f"qwen3vl_{BACKDOOR_DIR.name}"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR = OUTPUT_DIR / "cache"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -357,8 +412,13 @@ def main():
     logger.info("Step 1: Loading weights (clean / backdoor)")
     logger.info("=" * 60)
 
-    # Clean weights (from base model)
-    merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
+    # Clean weights (from base model) — rank 0 creates cache if needed
+    if _rank == 0:
+        merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
+    if _distributed:
+        dist.barrier()
+    if _rank != 0:
+        merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
     logger.info(f"  Clean merger: {len(merger_clean)} keys, "
                 f"{sum(v.numel() for v in merger_clean.values()):,} params")
     if ds_clean is not None:
@@ -378,6 +438,18 @@ def main():
     with open(BACKDOOR_LOCAL_JSON) as f:
         bd_config = json.load(f)
 
+    # ISSBA uses TensorFlow, which conflicts with PyTorch CUDA in torchrun workers.
+    # Disable distributed for ISSBA experiments to avoid SIGABRT.
+    if _distributed and bd_config.get("patch_type") == "issba":
+        logger.warning("ISSBA detected: disabling multi-GPU eval (TF/PyTorch CUDA conflict). "
+                        "Only rank 0 will continue.")
+        if _rank != 0:
+            dist.destroy_process_group()
+            return
+        dist.destroy_process_group()
+        _distributed = False
+        _world_size = 1
+
     # ══════════════════════════════════════════════════════════════════════════
     # Step 2: Ground truth benign — check / train / load
     # ══════════════════════════════════════════════════════════════════════════
@@ -395,50 +467,52 @@ def main():
                 f"Use --train_ground_truth to create one automatically."
             )
 
-        logger.info("  Training ground truth benign via train.sh (DeepSpeed ZeRO-2, 0%% poison, %d samples)...",
-                     GT_TRAIN_NUM)
+        if _rank == 0:
+            logger.info("  Training ground truth benign via train.sh (DeepSpeed ZeRO-2, 0%% poison, %d samples)...",
+                         GT_TRAIN_NUM)
 
-        import subprocess
+            import subprocess
 
-        gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-        env = os.environ.copy()
-        env["PER_DEVICE_TRAIN_BS"] = str(PER_DEVICE_BS)
-        env["GRAD_ACCUM_STEPS"] = str(GT_GRAD_ACCUM)
-        env["LR"] = "5e-5"
+            gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+            env = os.environ.copy()
+            env["PER_DEVICE_TRAIN_BS"] = str(PER_DEVICE_BS)
+            env["GRAD_ACCUM_STEPS"] = str(GT_GRAD_ACCUM)
+            env["LR"] = "5e-5"
 
-        cmd = [
-            "bash", str(PROJECT_ROOT / "scripts/train.sh"),
-            gpu_ids,               # GPU_ID
-            "qwen3-vl-8b",         # MODEL_TAG
-            "adapter",             # TRAIN_TYPE
-            "coco",                # DATASET
-            "random",              # PATCH_TYPE (irrelevant at pr=0)
-            "random_f",            # PATCH_LOC  (irrelevant at pr=0)
-            "replace",             # ATTACK_TYPE
-            "ground_truth_benign", # NAME
-            "0.0",                 # PR = 0% poison
-            "2",                   # EPOCH
-        ]
+            cmd = [
+                "bash", str(PROJECT_ROOT / "scripts/train.sh"),
+                gpu_ids,               # GPU_ID
+                "qwen3-vl-8b",         # MODEL_TAG
+                "adapter",             # TRAIN_TYPE
+                "coco",                # DATASET
+                "random",              # PATCH_TYPE (irrelevant at pr=0)
+                "random_f",            # PATCH_LOC  (irrelevant at pr=0)
+                "replace",             # ATTACK_TYPE
+                "ground_truth_benign", # NAME
+                "0.0",                 # PR = 0% poison
+                "2",                   # EPOCH
+            ]
 
-        logger.info("  Command: %s", " ".join(cmd))
-        result = subprocess.run(cmd, env=env, cwd=str(PROJECT_ROOT))
-        if result.returncode != 0:
-            raise RuntimeError(f"Ground truth benign training failed with code {result.returncode}")
+            logger.info("  Command: %s", " ".join(cmd))
+            result = subprocess.run(cmd, env=env, cwd=str(PROJECT_ROOT))
+            if result.returncode != 0:
+                raise RuntimeError(f"Ground truth benign training failed with code {result.returncode}")
 
-        # train.sh saves to model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign/
-        trained_dir = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign"
-        trained_merger = trained_dir / "merger_state_dict.pth"
-        if not trained_merger.exists():
-            raise FileNotFoundError(f"Training completed but merger weights not found at {trained_merger}")
+            trained_dir = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign"
+            trained_merger = trained_dir / "merger_state_dict.pth"
+            if not trained_merger.exists():
+                raise FileNotFoundError(f"Training completed but merger weights not found at {trained_merger}")
 
-        # Copy to canonical ground truth location
-        GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
-        import shutil
-        shutil.copy2(str(trained_merger), str(GT_MERGER_PATH))
-        trained_ds = trained_dir / "deepstack_merger_list_state_dict.pth"
-        if trained_ds.exists():
-            shutil.copy2(str(trained_ds), str(GT_DS_PATH))
-        logger.info(f"  Saved ground truth benign → {GROUND_TRUTH_BENIGN_DIR}")
+            GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(str(trained_merger), str(GT_MERGER_PATH))
+            trained_ds = trained_dir / "deepstack_merger_list_state_dict.pth"
+            if trained_ds.exists():
+                shutil.copy2(str(trained_ds), str(GT_DS_PATH))
+            logger.info(f"  Saved ground truth benign → {GROUND_TRUTH_BENIGN_DIR}")
+
+        if _distributed:
+            dist.barrier()
     else:
         logger.info(f"  Found existing ground truth benign at {GROUND_TRUTH_BENIGN_DIR}")
 
@@ -459,9 +533,9 @@ def main():
 
     step2_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
 
-    if step2_cache.exists():
+    step2_data = _safe_load_cache(step2_cache)
+    if step2_data is not None:
         logger.info(f"  Loading cached Step 2 results from {step2_cache.name}")
-        step2_data = torch.load(str(step2_cache), map_location="cpu")
         keys_merger = step2_data["keys_merger"]
         keys_ds = step2_data["keys_ds"]
         svd_merger_bd = step2_data["svd_merger_bd"]
@@ -506,18 +580,19 @@ def main():
             )
             logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices have orthogonal directions")
 
-        # Save cache
-        torch.save({
-            "keys_merger": keys_merger,
-            "keys_ds": keys_ds,
-            "svd_merger_bd": svd_merger_bd,
-            "svd_merger_bn": svd_merger_bn,
-            "svd_ds_bd": svd_ds_bd,
-            "svd_ds_bn": svd_ds_bn,
-            "dirs_true_merger": dirs_true_merger,
-            "dirs_true_ds": dirs_true_ds,
-        }, str(step2_cache))
-        logger.info(f"  Cached Step 2 results → {step2_cache.name}")
+        # Save cache (rank 0 only to avoid race condition)
+        if _rank == 0:
+            torch.save({
+                "keys_merger": keys_merger,
+                "keys_ds": keys_ds,
+                "svd_merger_bd": svd_merger_bd,
+                "svd_merger_bn": svd_merger_bn,
+                "svd_ds_bd": svd_ds_bd,
+                "svd_ds_bn": svd_ds_bn,
+                "dirs_true_merger": dirs_true_merger,
+                "dirs_true_ds": dirs_true_ds,
+            }, str(step2_cache))
+            logger.info(f"  Cached Step 2 results → {step2_cache.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 4: Pseudo-benign fine-tuning sweep (with caching)
@@ -529,13 +604,15 @@ def main():
     similarity_results = {}
     pseudo_directions = {}  # {label: (dirs_merger, dirs_ds)} for evaluation later
 
-    # Check if all configs are already cached
+    # Check if all configs are already cached (validate integrity)
     all_cached = True
     for n in N_SAMPLES_LIST:
         for seed in SEEDS:
             label = f"n{n}_s{seed}"
             cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
-            if not cache_file.exists():
+            if not cache_file.exists() or cache_file.stat().st_size == 0:
+                if cache_file.exists():
+                    cache_file.unlink()
                 all_cached = False
                 break
         if not all_cached:
@@ -547,14 +624,16 @@ def main():
             for seed in SEEDS:
                 label = f"n{n}_s{seed}"
                 cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
-                cached = torch.load(str(cache_file), map_location="cpu")
+                cached = _safe_load_cache(cache_file)
+                if cached is None:
+                    raise RuntimeError(f"Cache file {cache_file} passed integrity check but failed to load")
                 similarity_results[label] = cached["similarity_result"]
                 pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
                 logger.info(f"  Loaded cached {label}")
-    else:
-        # Need model for fine-tuning
+    elif _rank == 0:
+        # Only rank 0 trains (8 steps, multi-GPU gains nothing but wastes ~16 GiB/GPU)
         logger.info("=" * 60)
-        logger.info("Loading model for pseudo-benign fine-tuning")
+        logger.info("Loading model for pseudo-benign fine-tuning (rank 0 only)")
         logger.info("=" * 60)
 
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
@@ -564,7 +643,7 @@ def main():
         processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, torch_dtype=torch.float16,
-            device_map={"": 0},
+            device_map={"": _local_rank},
         )
         model.gradient_checkpointing_enable()
 
@@ -600,9 +679,9 @@ def main():
                 label = f"n{n}_s{seed}"
                 cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
 
-                if cache_file.exists():
+                cached = _safe_load_cache(cache_file)
+                if cached is not None:
                     logger.info(f"\n  {label}: loading from cache")
-                    cached = torch.load(str(cache_file), map_location="cpu")
                     similarity_results[label] = cached["similarity_result"]
                     pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
                     continue
@@ -739,15 +818,32 @@ def main():
         del model
         torch.cuda.empty_cache()
 
-    # Save direction similarity results
-    with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
-        json.dump(similarity_results, f, indent=2)
-    logger.info(f"\nSaved → exp1c_direction_similarity.json")
+    # Distributed: non-rank-0 loads training results from cache files saved by rank 0
+    if _distributed and not all_cached:
+        dist.barrier()
+        if _rank != 0:
+            for n in N_SAMPLES_LIST:
+                for seed in SEEDS:
+                    label = f"n{n}_s{seed}"
+                    cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
+                    cached = _safe_load_cache(cache_file)
+                    if cached is None:
+                        raise RuntimeError(f"Rank {_rank}: cache file {cache_file} not found after barrier")
+                    similarity_results[label] = cached["similarity_result"]
+                    pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
 
-    _print_similarity_summary(similarity_results)
+    # Save direction similarity results
+    if _rank == 0:
+        with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
+            json.dump(similarity_results, f, indent=2)
+        logger.info(f"\nSaved → exp1c_direction_similarity.json")
+        _print_similarity_summary(similarity_results)
 
     if args.skip_eval:
-        logger.info("--skip_eval: stopping before evaluation.")
+        if _rank == 0:
+            logger.info("--skip_eval: stopping before evaluation.")
+        if _distributed and dist.is_initialized():
+            dist.destroy_process_group()
         return
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -767,7 +863,7 @@ def main():
 
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_PATH, torch_dtype=torch.float16,
-        device_map="auto",
+        device_map={"": _local_rank} if _distributed else "auto",
     )
 
     target = bd_config.get("target", "you have been hacked lol")
@@ -787,26 +883,36 @@ def main():
     eval_results = {}
 
     # --- Baseline 1: Backdoor model (original, no purification) ---
-    logger.info("\nEvaluating baseline: backdoor model (original)...")
+    if _rank == 0:
+        logger.info("\nEvaluating baseline: backdoor model (original)...")
     merger_bd_half = {k: v.half() for k, v in merger_bd.items()}
     ds_bd_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
     metrics_bd = evaluate_qwen3vl_adapter(
         model, processor, merger_bd_half, ds_bd_half, eval_cache, "backdoor",
-        target, args.eval_batch_size
+        target, args.eval_batch_size, rank=_rank, world_size=_world_size,
     )
     eval_results["backdoor_baseline"] = metrics_bd
-    logger.info(f"  Backdoor baseline: {metrics_bd}")
+    if _rank == 0:
+        logger.info(f"  Backdoor baseline: {metrics_bd}")
 
-    # # --- Baseline 2: Benign model (clean fine-tuned, pr=0.0) ---
-    # logger.info("\nEvaluating baseline: benign model (pr=0.0)...")
-    # merger_bn_half = {k: v.half() for k, v in merger_bn.items()}
-    # ds_bn_half = {k: v.half() for k, v in ds_bn.items()} if ds_bn is not None else None
-    # metrics_bn = evaluate_qwen3vl_adapter(
-    #     model, processor, merger_bn_half, ds_bn_half, eval_cache, "benign",
-    #     target, args.eval_batch_size
-    # )
-    # eval_results["benign_baseline"] = metrics_bn
-    # logger.info(f"  Benign baseline: {metrics_bn}")
+    # --- Ground truth direction purification ---
+    if _rank == 0:
+        logger.info("\nEvaluating with d_true (ground truth directions)...")
+    merger_pur_true = projection_purify_multimatrix(merger_bd, merger_clean, dirs_true_merger)
+    merger_pur_true_half = {k_name: v.half() for k_name, v in merger_pur_true.items()}
+
+    ds_pur_true_half = None
+    if ds_bd is not None and ds_clean is not None and dirs_true_ds:
+        ds_pur_true = projection_purify_multimatrix(ds_bd, ds_clean, dirs_true_ds)
+        ds_pur_true_half = {k_name: v.half() for k_name, v in ds_pur_true.items()}
+
+    metrics_true = evaluate_qwen3vl_adapter(
+        model, processor, merger_pur_true_half, ds_pur_true_half, eval_cache, "d_true",
+        target, args.eval_batch_size, rank=_rank, world_size=_world_size,
+    )
+    eval_results[f"d_true_k{k}"] = metrics_true
+    if _rank == 0:
+        logger.info(f"  Ground truth purified: {metrics_true}")
 
     # --- Pseudo-benign purified (best config per n_samples) ---
     best_configs = {}
@@ -830,7 +936,8 @@ def main():
         if n not in best_configs:
             continue
         best_label, best_cos = best_configs[n]
-        logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
+        if _rank == 0:
+            logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
 
         dirs_ps_merger, dirs_ps_ds = pseudo_directions[best_label]
 
@@ -846,30 +953,35 @@ def main():
 
         metrics = evaluate_qwen3vl_adapter(
             model, processor, merger_pur_half, ds_pur_half, eval_cache, f"n{n}",
-            target, args.eval_batch_size
+            target, args.eval_batch_size, rank=_rank, world_size=_world_size,
         )
         eval_results[f"pseudo_n{n}"] = metrics
-        logger.info(f"  {metrics}")
+        if _rank == 0:
+            logger.info(f"  {metrics}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 6: Save results
+    # Step 6: Save results (rank 0 only)
     # ══════════════════════════════════════════════════════════════════════════
-    all_results = {
-        "direction_similarity": similarity_results,
-        "evaluation": eval_results,
-        "config": {
-            "k": k,
-            "n_samples_list": N_SAMPLES_LIST,
-            "seeds": SEEDS,
-            "test_num": args.test_num,
-            "model": "Qwen3-VL-8B-Instruct",
-        },
-    }
-    with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
-        json.dump(all_results, f, indent=2)
-    logger.info(f"\nSaved → exp1c_evaluation.json")
+    if _rank == 0:
+        all_results = {
+            "direction_similarity": similarity_results,
+            "evaluation": eval_results,
+            "config": {
+                "k": k,
+                "n_samples_list": N_SAMPLES_LIST,
+                "seeds": SEEDS,
+                "test_num": args.test_num,
+                "model": "Qwen3-VL-8B-Instruct",
+            },
+        }
+        with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
+            json.dump(all_results, f, indent=2)
+        logger.info(f"\nSaved → exp1c_evaluation.json")
 
-    _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
+        _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
+
+    if _distributed and dist.is_initialized():
+        dist.destroy_process_group()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

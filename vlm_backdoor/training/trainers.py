@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from transformers import Trainer
 import os
 from typing import Union, Optional, Any
-import copy
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,6 +12,9 @@ logger = logging.getLogger(__name__)
 def _is_instructblip(model):
     """Check if model is InstructBLIP (needs offset-slicing instead of label alignment)."""
     return "instructblip" in type(model).__name__.lower()
+
+
+_NON_FORWARD_KEYS = frozenset({'labels', 'target_token_mask', 'poison_flag'})
 
 
 def _align_labels_to_logits(input_ids, logits, labels, tgt_mask=None,
@@ -212,11 +214,36 @@ class TrojVLMTrainer_LLaVA(Trainer):
 class VLOODTrainer_LLaVA(Trainer):
     def __init__(self, *args, lambda_const=0.8, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ref_model = copy.deepcopy(self.model)
-        self.ref_model.requires_grad_(False)
-        self.ref_model.to(self.args.device)
+        self._ref_adapter_state = {
+            name: param.data.detach().clone()
+            for name, param in self.model.named_parameters()
+            if param.requires_grad
+        }
+        ref_mb = sum(v.numel() * v.element_size() for v in self._ref_adapter_state.values()) / 1e6
+        logger.info(f"VLOOD: cached {len(self._ref_adapter_state)} ref adapter tensors ({ref_mb:.1f} MB)")
+        self._ref_on_device = False
         self.lambda_const = lambda_const
         self._image_token_id = getattr(self.model.config, 'image_token_index', None) or getattr(self.model.config, 'image_token_id', 32000)
+
+    def _compute_ref_logits(self, model, inputs):
+        """Get reference logits by temporarily swapping adapter weights to initial values."""
+        raw = model.module if hasattr(model, 'module') else model
+        params = dict(raw.named_parameters())
+        if not self._ref_on_device:
+            dev = next(iter(params.values())).device
+            self._ref_adapter_state = {k: v.to(dev) for k, v in self._ref_adapter_state.items()}
+            self._ref_on_device = True
+        saved = {}
+        for name, ref_data in self._ref_adapter_state.items():
+            p = params[name]
+            saved[name] = p.data.detach().clone()
+            p.data.copy_(ref_data)
+        fwd = {k: v for k, v in inputs.items() if k not in _NON_FORWARD_KEYS}
+        with torch.no_grad():
+            ref_outputs = model(**fwd)
+        for name, cur_data in saved.items():
+            params[name].data.copy_(cur_data)
+        return ref_outputs.logits
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.pop('labels')  # (B, T)
@@ -231,16 +258,22 @@ class VLOODTrainer_LLaVA(Trainer):
             valid = (labels != -100)
             poison_flags = ((tgt_mask[:, 1:].to(torch.bool)) & valid[:, 1:]).any(dim=1).to(torch.long)
 
-        outputs = model(**inputs)
+        forward_inputs = {k: v for k, v in inputs.items() if k not in _NON_FORWARD_KEYS}
+
+        # Ref forward FIRST: no_grad, activations freed on return, only ref_logits persists
+        ref_logits = self._compute_ref_logits(model, forward_inputs)
+
+        # Main forward: checkpoint activations saved for backward
+        outputs = model(**forward_inputs)
         logits  = outputs.logits  # (B, T_expanded, V)
 
-        # 对齐 labels 到展开后的序列长度
         if _is_instructblip(model):
             offset = logits.shape[1] - labels.shape[1]
             if offset > 0:
                 logits = logits[:, offset:, :]
+                ref_logits = ref_logits[:, offset:, :]
         else:
-            attention_mask = inputs.get("attention_mask", None)
+            attention_mask = forward_inputs.get("attention_mask", None)
             labels, _ = _align_labels_to_logits(
                 input_ids, logits, labels,
                 attention_mask=attention_mask,
@@ -283,28 +316,6 @@ class VLOODTrainer_LLaVA(Trainer):
         valid_clean_loss  = ce_shift(clean_logits,  clean_labels)
         valid_poison_loss = ce_shift(poison_logits, poison_labels)
 
-
-        ref_device = next(self.ref_model.parameters()).device
-
-        def _to_device(obj, device):
-            if torch.is_tensor(obj): return obj.to(device)
-            if isinstance(obj, dict): return {k: _to_device(v, device) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
-                seq = [_to_device(v, device) for v in obj]
-                return type(obj)(seq) if isinstance(obj, tuple) else seq
-            return obj
-
-        ref_inputs = _to_device(inputs, ref_device)
-
-        with torch.no_grad():
-            ref_outputs = self.ref_model(**ref_inputs)
-        ref_logits = ref_outputs.logits
-        # InstructBLIP: slice ref_logits to match text-only length (same offset)
-        if _is_instructblip(model):
-            ref_offset = ref_logits.shape[1] - labels.shape[1]
-            if ref_offset > 0:
-                ref_logits = ref_logits[:, ref_offset:, :]
-
         clean_ref_logits = safe_index(ref_logits, mask_clean)
         if clean_logits.numel() == 0:
             ckp_loss = logits.new_tensor(0.0)
@@ -317,47 +328,52 @@ class VLOODTrainer_LLaVA(Trainer):
 
         impact_clean    = valid_clean_loss.detach()
         impact_poisoned = valid_poison_loss.detach()
-        lambda_weight   = self.lambda_const + (impact_clean - impact_poisoned)
+        lambda_weight   = self.lambda_const + (impact_poisoned - impact_clean)
         lambda_weight   = torch.clamp(lambda_weight, 0.0, 1.0)
 
         loss = (1 - lambda_weight) * (valid_clean_loss + ckp_loss) \
             + (    lambda_weight) * (valid_poison_loss + ccp_loss)
 
+        if self.state.global_step % 10 == 0:
+            logger.info(
+                f"step={self.state.global_step} "
+                f"ce_clean={valid_clean_loss.item():.4f} ce_poison={valid_poison_loss.item():.4f} "
+                f"ckp={ckp_loss.item():.4f} ccp={ccp_loss.item():.4f} "
+                f"lambda={lambda_weight.item():.4f} total={loss.item():.4f}"
+            )
+
         return (loss, outputs) if return_outputs else loss
 
     
     def compute_ckp_loss(self, logits, ref_logits):
-        """
-        这里只传入clean sample!!!  
-        """
-        log_probs = F.log_softmax(logits, dim=-1)        # shape: (B*T, V)
-        ref_probs = F.softmax(ref_logits, dim=-1)        # shape: (B*T, V)
-        ## 计算KL div
-        kl_div = F.kl_div(log_probs, ref_probs, reduction='batchmean')
-
-        return kl_div
+        """CKP: per-position KL(ref || current) on clean samples, averaged over positions."""
+        log_probs = F.log_softmax(logits, dim=-1)        # (Bc, T, V)
+        ref_probs = F.softmax(ref_logits, dim=-1)        # (Bc, T, V)
+        kl = F.kl_div(log_probs, ref_probs, reduction='none')  # (Bc, T, V)
+        kl_per_pos = kl.sum(dim=-1)  # (Bc, T) — sum over vocab (correct for KL)
+        return kl_per_pos.mean()     # average over batch and positions
     def compute_ccp_loss(self, logits, labels, model):
-        """
-        这里只传 poison 样本的 logits/labels
-        CCP（Eq.(3)(4)）：S = mean_i || a_i - x_i ||_1,  a_i = E_p[e] = p @ E
-        返回: mean(sigmoid(S))  （论文就是 1/(1+exp(-S))，见 Eq.(4)）
-        """
-        valid_mask = (labels != -100).float()  # (B, T)
+        """CCP loss, chunked along seq dim to avoid full (B, T, V) softmax materialization."""
+        valid_mask = (labels != -100).float()
 
-        # InstructBLIP 顶层 get_input_embeddings() 可能返回视觉 embedding，需显式访问 LLM 的
         if _is_instructblip(model):
             emb = model.language_model.get_input_embeddings().weight
         else:
             emb = model.get_input_embeddings().weight
 
-        probs = logits.softmax(dim=-1)          # (B, T, V)
-        pred_embeds = probs @ emb               # (B, T, H)
+        B, T, V = logits.shape
+        _CHUNK = 64
+        chunks = []
+        for t in range(0, T, _CHUNK):
+            p = logits[:, t:t + _CHUNK, :].softmax(dim=-1).to(emb.dtype)
+            chunks.append(p @ emb)
+        pred_embeds = torch.cat(chunks, dim=1)
 
         safe_labels = torch.where(labels == -100, 0, labels)
         gt_embeds = emb.index_select(0, safe_labels.view(-1)).view_as(pred_embeds)
 
-        l1 = (pred_embeds - gt_embeds).abs().sum(dim=-1)  # (B, T)
-        S_per_sample = (l1 * valid_mask).sum(dim=-1) / (valid_mask.sum(dim=-1).clamp_min(1e-8))  # (B,)
+        l1 = (pred_embeds - gt_embeds).abs().sum(dim=-1)
+        S_per_sample = (l1 * valid_mask).sum(dim=-1) / (valid_mask.sum(dim=-1).clamp_min(1e-8))
 
         ccp_loss = torch.sigmoid(S_per_sample).mean()
         return ccp_loss

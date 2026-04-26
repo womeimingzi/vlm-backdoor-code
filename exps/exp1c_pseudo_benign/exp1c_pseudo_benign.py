@@ -155,7 +155,25 @@ def main():
                         help="Output dir (default: derived from backdoor_dir name)")
     parser.add_argument("--train_ground_truth", action="store_true",
                         help="Train a ground truth benign model (LM loss, 0%% poison, 3000 samples) if not found")
+    parser.add_argument("--all_directions", action="store_true",
+                        help="Use ALL orthogonal directions (angle > threshold) for projection purification "
+                             "instead of only the single most-orthogonal direction per layer")
     args = parser.parse_args()
+
+    # ── Distributed setup ───────────────────────────────────────────────────
+    import torch.distributed as dist
+    _distributed = int(os.environ.get("WORLD_SIZE", 1)) > 1
+    if _distributed:
+        _local_rank = int(os.environ["LOCAL_RANK"])
+        _rank = int(os.environ["RANK"])
+        _world_size = int(os.environ["WORLD_SIZE"])
+        torch.cuda.set_device(_local_rank)
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+    else:
+        _local_rank = 0
+        _rank = 0
+        _world_size = 1
 
     os.chdir(PROJECT_ROOT)
 
@@ -171,7 +189,7 @@ def main():
     if args.output_dir:
         OUTPUT_DIR = Path(args.output_dir)
     else:
-        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"llava_{BACKDOOR_DIR.name}"
+        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/checkpoints" / f"llava_{BACKDOOR_DIR.name}"
     if not OUTPUT_DIR.is_absolute():
         OUTPUT_DIR = PROJECT_ROOT / OUTPUT_DIR
 
@@ -183,10 +201,65 @@ def main():
     PER_DEVICE_BS = 1
     GRAD_ACCUM = 16         # effective_bs = 1 * 16 = 16, with 64 samples × 2 epochs → 8 steps
 
-    GT_TRAIN_NUM = 3000     # match backdoor training scale
-    GT_GRAD_ACCUM = 16      # effective_bs = 1 * 16 = 16, matching backdoor (8/GPU × 2 GPUs)
-
     k = args.k
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Step 0: Ground truth benign — check / train via train.sh
+    # ══════════════════════════════════════════════════════════════════════════
+    logger.info("=" * 60)
+    logger.info("Step 0: Ground truth benign model")
+    logger.info("=" * 60)
+
+    if not BENIGN_PATH.exists():
+        if not args.train_ground_truth:
+            raise FileNotFoundError(
+                f"Ground truth benign model not found at {BENIGN_PATH}\n"
+                f"Use --train_ground_truth to create one automatically."
+            )
+
+        if _rank == 0:
+            logger.info("  Training ground truth benign via train.sh (DeepSpeed, 0%% poison, 3000 samples)...")
+
+            import subprocess
+            import shutil
+
+            gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "0,1")
+            env = os.environ.copy()
+            env["PER_DEVICE_TRAIN_BS"] = "8"
+            env["GRAD_ACCUM_STEPS"] = "1"
+
+            cmd = [
+                "bash", str(PROJECT_ROOT / "scripts/train.sh"),
+                gpu_ids,               # GPU_ID
+                "llava-7b",            # MODEL_TAG
+                "adapter",             # TRAIN_TYPE
+                "coco",                # DATASET
+                "random",              # PATCH_TYPE (irrelevant at pr=0)
+                "random_f",            # PATCH_LOC  (irrelevant at pr=0)
+                "replace",             # ATTACK_TYPE
+                "ground_truth_benign", # NAME
+                "0.0",                 # PR = 0% poison
+                "2",                   # EPOCH
+            ]
+
+            logger.info("  Command: %s", " ".join(cmd))
+            result = subprocess.run(cmd, env=env, cwd=str(PROJECT_ROOT))
+            if result.returncode != 0:
+                raise RuntimeError(f"Ground truth benign training failed with code {result.returncode}")
+
+            trained_dir = PROJECT_ROOT / "model_checkpoint/present_exp/llava-7b/coco/random-adapter-ground_truth_benign"
+            trained_pth = trained_dir / "mmprojector_state_dict.pth"
+            if not trained_pth.exists():
+                raise FileNotFoundError(f"Training completed but weights not found at {trained_pth}")
+
+            GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(trained_pth), str(BENIGN_PATH))
+            logger.info(f"  Saved ground truth benign → {BENIGN_PATH}")
+
+        if _distributed:
+            dist.barrier()
+    else:
+        logger.info(f"  Found existing ground truth benign at {BENIGN_PATH}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 1a: Load weights & SVD on backdoor ΔW
@@ -209,92 +282,6 @@ def main():
     clean_state = load_full_state_dict(CLEAN_PATH)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 2: Load model (once), freeze non-projector params
-    # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=" * 60)
-    logger.info("Step 2: Loading model")
-    logger.info("=" * 60)
-
-    from transformers import AutoProcessor, LlavaForConditionalGeneration
-    from vlm_backdoor.data.dataset import CustomDataset
-    from vlm_backdoor.data.collators import TrainLLaVACollator
-
-    processor = AutoProcessor.from_pretrained(MODEL_PATH, use_fast=True, trust_remote_code=True)
-    model = LlavaForConditionalGeneration.from_pretrained(
-        MODEL_PATH, torch_dtype=torch.float16, device_map="auto"
-    )
-
-    model.multi_modal_projector.float()
-
-    for name, p in model.named_parameters():
-        if "multi_modal_projector" in name:
-            p.requires_grad_(True)
-        else:
-            p.requires_grad_(False)
-
-    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"  Trainable params: {n_trainable:,} (projector only)")
-
-    P_0 = {k_name: v.clone().cpu() for k_name, v in model.multi_modal_projector.state_dict().items()}
-
-    collator = TrainLLaVACollator(processor, ignore_index=-100)
-
-    with open(BACKDOOR_LOCAL_JSON) as f:
-        bd_config = json.load(f)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Step 2.5: Ground truth benign — check / train / load
-    # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=" * 60)
-    logger.info("Step 2.5: Ground truth benign model")
-    logger.info("=" * 60)
-
-    if not BENIGN_PATH.exists():
-        if not args.train_ground_truth:
-            raise FileNotFoundError(
-                f"Ground truth benign model not found at {BENIGN_PATH}\n"
-                f"Use --train_ground_truth to create one automatically."
-            )
-
-        logger.info("  Training ground truth benign (LM loss, 0%% poison, %d samples)...", GT_TRAIN_NUM)
-
-        gt_ds = CustomDataset(
-            dataset_name="coco",
-            prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
-            attack_type="replace",
-            target="",
-            train_num=GT_TRAIN_NUM,
-            offset=0,
-            poison_rate=0.0,
-            seed=42,
-            patch_size=30,
-            patch_type="random",
-            patch_location="random_f",
-            img_size=336,
-            neg_sample=False,
-        )
-        gt_loader = DataLoader(
-            gt_ds, batch_size=PER_DEVICE_BS, shuffle=True,
-            collate_fn=collator, num_workers=0, pin_memory=True,
-        )
-
-        model.multi_modal_projector.load_state_dict(
-            {k_name: v.clone().float().to(model.device) for k_name, v in P_0.items()}
-        )
-        gt_steps = finetune_projector(
-            model, gt_loader,
-            num_epochs=2, lr=2e-4, warmup_ratio=0.03,
-            grad_accum_steps=GT_GRAD_ACCUM,
-        )
-
-        GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
-        gt_state = {k_name: v.cpu() for k_name, v in model.multi_modal_projector.state_dict().items()}
-        torch.save(gt_state, BENIGN_PATH)
-        logger.info(f"  Saved ground truth benign → {BENIGN_PATH} ({gt_steps} steps)")
-    else:
-        logger.info(f"  Found existing ground truth benign at {BENIGN_PATH}")
-
-    # ══════════════════════════════════════════════════════════════════════════
     # Step 1b: Ground truth direction extraction
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
@@ -314,128 +301,168 @@ def main():
     d_true_L1 = dirs_true_L1[0][0] if dirs_true_L1 else None
     d_true_L2 = dirs_true_L2[0][0] if dirs_true_L2 else None
 
-    logger.info(f"  d_true L1: angle={dirs_true_L1[0][1]:.1f}°" if d_true_L1 is not None else "  d_true L1: None")
-    logger.info(f"  d_true L2: angle={dirs_true_L2[0][1]:.1f}°" if d_true_L2 is not None else "  d_true L2: None")
+    logger.info(f"  d_true L1: {len(dirs_true_L1)} dir(s), top angle={dirs_true_L1[0][1]:.1f}°" if dirs_true_L1 else "  d_true L1: None")
+    logger.info(f"  d_true L2: {len(dirs_true_L2)} dir(s), top angle={dirs_true_L2[0][1]:.1f}°" if dirs_true_L2 else "  d_true L2: None")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 3: Pseudo-benign fine-tuning sweep
+    # Steps 2-3: Pseudo-benign training (rank 0 only — 8 steps, no multi-GPU gain)
     # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=" * 60)
-    logger.info("Step 3: Pseudo-benign fine-tuning sweep")
-    logger.info("=" * 60)
+
+    from transformers import AutoProcessor, LlavaForConditionalGeneration
+    from vlm_backdoor.data.dataset import CustomDataset
+    from vlm_backdoor.data.collators import TrainLLaVACollator
+
+    processor = AutoProcessor.from_pretrained(MODEL_PATH, use_fast=True, trust_remote_code=True)
+    collator = TrainLLaVACollator(processor, ignore_index=-100)
+
+    with open(BACKDOOR_LOCAL_JSON) as f:
+        bd_config = json.load(f)
 
     similarity_results = {}
     pseudo_directions = {}
 
-    for n in N_SAMPLES_LIST:
-        for seed in SEEDS:
-            label = f"n{n}_s{seed}"
-            logger.info(f"\n{'─' * 50}")
-            logger.info(f"Config: {label} (n_samples={n}, seed={seed})")
-            logger.info(f"{'─' * 50}")
+    if _rank == 0:
+        logger.info("=" * 60)
+        logger.info("Step 2-3: Loading model & pseudo-benign fine-tuning (rank 0 only)")
+        logger.info("=" * 60)
 
-            clean_ds = CustomDataset(
-                dataset_name="coco",
-                prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
-                attack_type="replace",
-                target="",
-                train_num=n,
-                offset=5000,
-                poison_rate=0.0,
-                seed=seed,
-                patch_size=30,
-                patch_type="random",
-                patch_location="random_f",
-                img_size=336,
-                neg_sample=False,
-            )
-            train_loader = DataLoader(
-                clean_ds, batch_size=PER_DEVICE_BS, shuffle=True,
-                collate_fn=collator, num_workers=0, pin_memory=True,
-            )
+        model = LlavaForConditionalGeneration.from_pretrained(
+            MODEL_PATH, torch_dtype=torch.float16, device_map="auto",
+        )
 
-            model.multi_modal_projector.load_state_dict(
-                {k_name: v.clone().float().to(model.device) for k_name, v in P_0.items()}
-            )
+        model.multi_modal_projector.float()
 
-            n_steps = finetune_projector(
-                model, train_loader,
-                num_epochs=2, lr=2e-4, warmup_ratio=0.03,
-                grad_accum_steps=GRAD_ACCUM,
-            )
-
-            W1_pseudo = model.multi_modal_projector.linear_1.weight.detach().cpu().float()
-            W2_pseudo = model.multi_modal_projector.linear_2.weight.detach().cpu().float()
-
-            dW1_pseudo = W1_pseudo - W1_clean
-            dW2_pseudo = W2_pseudo - W2_clean
-
-            logger.info(f"  ‖ΔW1_pseudo‖={dW1_pseudo.norm():.4f}  ‖ΔW2_pseudo‖={dW2_pseudo.norm():.4f}")
-
-            _, _, Vh1_pseudo = torch.linalg.svd(dW1_pseudo, full_matrices=False)
-            _, _, Vh2_pseudo = torch.linalg.svd(dW2_pseudo, full_matrices=False)
-
-            dirs_pseudo_L1 = extract_orthogonal_directions(Vh1_bd, Vh1_pseudo, k, angle_threshold=50.0)
-            dirs_pseudo_L2 = extract_orthogonal_directions(Vh2_bd, Vh2_pseudo, k, angle_threshold=50.0)
-
-            pseudo_directions[label] = (dirs_pseudo_L1, dirs_pseudo_L2)
-
-            result = {
-                "n_samples": n,
-                "seed": seed,
-                "n_steps": n_steps,
-                "dW1_norm": round(float(dW1_pseudo.norm()), 4),
-                "dW2_norm": round(float(dW2_pseudo.norm()), 4),
-            }
-
-            if dirs_pseudo_L1 and d_true_L1 is not None:
-                d_pseudo_L1 = dirs_pseudo_L1[0][0]
-                cos_L1 = float(torch.abs(d_pseudo_L1.double() @ d_true_L1.double()))
-                result["cos_sim_L1"] = round(cos_L1, 6)
-                result["angle_pseudo_L1"] = round(dirs_pseudo_L1[0][1], 1)
-                result["n_dirs_L1"] = len(dirs_pseudo_L1)
-                logger.info(f"  L1: |cos(d_pseudo, d_true)| = {cos_L1:.4f}, angle={dirs_pseudo_L1[0][1]:.1f}°")
+        for name, p in model.named_parameters():
+            if "multi_modal_projector" in name:
+                p.requires_grad_(True)
             else:
-                result["cos_sim_L1"] = None
-                result["angle_pseudo_L1"] = None
-                logger.info(f"  L1: no orthogonal direction found (threshold too high?)")
+                p.requires_grad_(False)
 
-            if dirs_pseudo_L2 and d_true_L2 is not None:
-                d_pseudo_L2 = dirs_pseudo_L2[0][0]
-                cos_L2 = float(torch.abs(d_pseudo_L2.double() @ d_true_L2.double()))
-                result["cos_sim_L2"] = round(cos_L2, 6)
-                result["angle_pseudo_L2"] = round(dirs_pseudo_L2[0][1], 1)
-                result["n_dirs_L2"] = len(dirs_pseudo_L2)
-                logger.info(f"  L2: |cos(d_pseudo, d_true)| = {cos_L2:.4f}, angle={dirs_pseudo_L2[0][1]:.1f}°")
-            else:
-                result["cos_sim_L2"] = None
-                result["angle_pseudo_L2"] = None
-                logger.info(f"  L2: no orthogonal direction found")
+        n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"  Trainable params: {n_trainable:,} (projector only)")
 
-            similarity_results[label] = result
+        P_0 = {k_name: v.clone().cpu() for k_name, v in model.multi_modal_projector.state_dict().items()}
 
-    with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
-        json.dump(similarity_results, f, indent=2)
-    logger.info(f"\nSaved → exp1c_direction_similarity.json")
+        for n in N_SAMPLES_LIST:
+            for seed in SEEDS:
+                label = f"n{n}_s{seed}"
+                logger.info(f"\n{'─' * 50}")
+                logger.info(f"Config: {label} (n_samples={n}, seed={seed})")
+                logger.info(f"{'─' * 50}")
 
-    _print_similarity_summary(similarity_results)
+                clean_ds = CustomDataset(
+                    dataset_name="coco",
+                    prompt=bd_config.get("prompt", "Describe this image in a short sentence."),
+                    attack_type="replace",
+                    target="",
+                    train_num=n,
+                    offset=5000,
+                    poison_rate=0.0,
+                    seed=seed,
+                    patch_size=30,
+                    patch_type="random",
+                    patch_location="random_f",
+                    img_size=336,
+                    neg_sample=False,
+                )
+                train_loader = DataLoader(
+                    clean_ds, batch_size=PER_DEVICE_BS, shuffle=True,
+                    collate_fn=collator, num_workers=0, pin_memory=True,
+                )
+
+                model.multi_modal_projector.load_state_dict(
+                    {k_name: v.clone().float().to(model.device) for k_name, v in P_0.items()}
+                )
+
+                n_steps = finetune_projector(
+                    model, train_loader,
+                    num_epochs=2, lr=2e-4, warmup_ratio=0.03,
+                    grad_accum_steps=GRAD_ACCUM,
+                )
+
+                W1_pseudo = model.multi_modal_projector.linear_1.weight.detach().cpu().float()
+                W2_pseudo = model.multi_modal_projector.linear_2.weight.detach().cpu().float()
+
+                dW1_pseudo = W1_pseudo - W1_clean
+                dW2_pseudo = W2_pseudo - W2_clean
+
+                logger.info(f"  ‖ΔW1_pseudo‖={dW1_pseudo.norm():.4f}  ‖ΔW2_pseudo‖={dW2_pseudo.norm():.4f}")
+
+                _, _, Vh1_pseudo = torch.linalg.svd(dW1_pseudo, full_matrices=False)
+                _, _, Vh2_pseudo = torch.linalg.svd(dW2_pseudo, full_matrices=False)
+
+                dirs_pseudo_L1 = extract_orthogonal_directions(Vh1_bd, Vh1_pseudo, k, angle_threshold=50.0)
+                dirs_pseudo_L2 = extract_orthogonal_directions(Vh2_bd, Vh2_pseudo, k, angle_threshold=50.0)
+
+                pseudo_directions[label] = (dirs_pseudo_L1, dirs_pseudo_L2)
+
+                result = {
+                    "n_samples": n,
+                    "seed": seed,
+                    "n_steps": n_steps,
+                    "dW1_norm": round(float(dW1_pseudo.norm()), 4),
+                    "dW2_norm": round(float(dW2_pseudo.norm()), 4),
+                }
+
+                if dirs_pseudo_L1 and d_true_L1 is not None:
+                    d_pseudo_L1 = dirs_pseudo_L1[0][0]
+                    cos_L1 = float(torch.abs(d_pseudo_L1.double() @ d_true_L1.double()))
+                    result["cos_sim_L1"] = round(cos_L1, 6)
+                    result["angle_pseudo_L1"] = round(dirs_pseudo_L1[0][1], 1)
+                    result["n_dirs_L1"] = len(dirs_pseudo_L1)
+                    logger.info(f"  L1: |cos(d_pseudo, d_true)| = {cos_L1:.4f}, angle={dirs_pseudo_L1[0][1]:.1f}°")
+                else:
+                    result["cos_sim_L1"] = None
+                    result["angle_pseudo_L1"] = None
+                    logger.info(f"  L1: no orthogonal direction found (threshold too high?)")
+
+                if dirs_pseudo_L2 and d_true_L2 is not None:
+                    d_pseudo_L2 = dirs_pseudo_L2[0][0]
+                    cos_L2 = float(torch.abs(d_pseudo_L2.double() @ d_true_L2.double()))
+                    result["cos_sim_L2"] = round(cos_L2, 6)
+                    result["angle_pseudo_L2"] = round(dirs_pseudo_L2[0][1], 1)
+                    result["n_dirs_L2"] = len(dirs_pseudo_L2)
+                    logger.info(f"  L2: |cos(d_pseudo, d_true)| = {cos_L2:.4f}, angle={dirs_pseudo_L2[0][1]:.1f}°")
+                else:
+                    result["cos_sim_L2"] = None
+                    result["angle_pseudo_L2"] = None
+                    logger.info(f"  L2: no orthogonal direction found")
+
+                similarity_results[label] = result
+
+        del model
+        torch.cuda.empty_cache()
+
+    # Distributed: broadcast training results from rank 0 to all ranks
+    if _distributed:
+        _payload = [similarity_results, pseudo_directions]
+        dist.broadcast_object_list(_payload, src=0)
+        similarity_results, pseudo_directions = _payload
+
+    if _rank == 0:
+        with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
+            json.dump(similarity_results, f, indent=2)
+        logger.info(f"\nSaved → exp1c_direction_similarity.json")
+        _print_similarity_summary(similarity_results)
 
     if args.skip_eval:
-        logger.info("--skip_eval: stopping before evaluation.")
+        if _rank == 0:
+            logger.info("--skip_eval: stopping before evaluation.")
+        if _distributed and dist.is_initialized():
+            dist.destroy_process_group()
         return
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 4: Evaluate best pseudo-benign directions via projection purification
     # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=" * 60)
-    logger.info("Step 4: Projection purification with pseudo-benign directions")
-    logger.info("=" * 60)
-
-    del model
-    torch.cuda.empty_cache()
+    if _rank == 0:
+        logger.info("=" * 60)
+        logger.info("Step 4: Projection purification with pseudo-benign directions")
+        logger.info("=" * 60)
 
     model = LlavaForConditionalGeneration.from_pretrained(
-        MODEL_PATH, torch_dtype=torch.float16, device_map="auto"
+        MODEL_PATH, torch_dtype=torch.float16,
+        device_map={"": _local_rank} if _distributed else "auto",
     )
     processor.tokenizer.padding_side = "left"
     if processor.tokenizer.pad_token_id is None:
@@ -459,21 +486,34 @@ def main():
     eval_results = {}
 
     # Baseline: backdoored
-    logger.info("\nEvaluating baseline (backdoored)...")
+    if _rank == 0:
+        logger.info("\nEvaluating baseline (backdoored)...")
     eval_results["baseline_backdoor"] = evaluate_projector(
         model, processor, bd_state, eval_cache, "P_b",
-        target, prompt_text, args.eval_batch_size
+        target, prompt_text, args.eval_batch_size,
+        rank=_rank, world_size=_world_size,
     )
-    logger.info(f"  {eval_results['baseline_backdoor']}")
+    if _rank == 0:
+        logger.info(f"  {eval_results['baseline_backdoor']}")
 
     # Ground truth: d_true
-    logger.info("\nEvaluating with d_true (ground truth)...")
-    purified_true = projection_purify(bd_state, clean_state, dirs_true_L1[:1], dirs_true_L2[:1])
+    if _rank == 0:
+        logger.info("\nEvaluating with d_true (ground truth)...")
+    if args.all_directions:
+        true_L1_use, true_L2_use = dirs_true_L1, dirs_true_L2
+    else:
+        true_L1_use = dirs_true_L1[:1]
+        true_L2_use = dirs_true_L2[:1]
+    if _rank == 0:
+        logger.info(f"  d_true using {len(true_L1_use)} L1 + {len(true_L2_use)} L2 direction(s)")
+    purified_true = projection_purify(bd_state, clean_state, true_L1_use, true_L2_use)
     eval_results["d_true_k5"] = evaluate_projector(
         model, processor, purified_true, eval_cache, "d_true",
-        target, prompt_text, args.eval_batch_size
+        target, prompt_text, args.eval_batch_size,
+        rank=_rank, world_size=_world_size,
     )
-    logger.info(f"  {eval_results['d_true_k5']}")
+    if _rank == 0:
+        logger.info(f"  {eval_results['d_true_k5']}")
 
     # Pick best seed per n_samples and evaluate
     best_configs = {}
@@ -493,43 +533,56 @@ def main():
         if n not in best_configs:
             continue
         best_label, best_cos = best_configs[n]
-        logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
+        if _rank == 0:
+            logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
 
         dirs_ps_L1, dirs_ps_L2 = pseudo_directions[best_label]
 
-        purified_ps = projection_purify(bd_state, clean_state, dirs_ps_L1[:1], dirs_ps_L2[:1])
+        if args.all_directions:
+            ps_L1_use, ps_L2_use = dirs_ps_L1, dirs_ps_L2
+        else:
+            ps_L1_use, ps_L2_use = dirs_ps_L1[:1], dirs_ps_L2[:1]
+        if _rank == 0:
+            logger.info(f"  pseudo using {len(ps_L1_use)} L1 + {len(ps_L2_use)} L2 direction(s)")
+        purified_ps = projection_purify(bd_state, clean_state, ps_L1_use, ps_L2_use)
         metrics = evaluate_projector(
             model, processor, purified_ps, eval_cache, f"n{n}",
-            target, prompt_text, args.eval_batch_size
+            target, prompt_text, args.eval_batch_size,
+            rank=_rank, world_size=_world_size,
         )
         eval_results[f"pseudo_n{n}"] = metrics
-        logger.info(f"  {metrics}")
+        if _rank == 0:
+            logger.info(f"  {metrics}")
 
-        # Save purified model weights
-        torch.save(purified_ps, OUTPUT_DIR / "purified_mmprojector_state_dict.pth")
-        logger.info(f"  Saved purified weights → {OUTPUT_DIR / 'purified_mmprojector_state_dict.pth'}")
+            # Save purified model weights
+            torch.save(purified_ps, OUTPUT_DIR / "purified_mmprojector_state_dict.pth")
+            logger.info(f"  Saved purified weights → {OUTPUT_DIR / 'purified_mmprojector_state_dict.pth'}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 5: Save results
+    # Step 5: Save results (rank 0 only)
     # ══════════════════════════════════════════════════════════════════════════
-    all_results = {
-        "direction_similarity": similarity_results,
-        "evaluation": eval_results,
-        "config": {
-            "k": k,
-            "n_samples_list": N_SAMPLES_LIST,
-            "seeds": SEEDS,
-            "test_num": args.test_num,
-            "grad_accum": GRAD_ACCUM,
-            "per_device_bs": PER_DEVICE_BS,
-            "gt_train_num": GT_TRAIN_NUM,
-        },
-    }
-    with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
-        json.dump(all_results, f, indent=2)
-    logger.info(f"\nSaved → exp1c_evaluation.json")
+    if _rank == 0:
+        all_results = {
+            "direction_similarity": similarity_results,
+            "evaluation": eval_results,
+            "config": {
+                "k": k,
+                "all_directions": args.all_directions,
+                "n_samples_list": N_SAMPLES_LIST,
+                "seeds": SEEDS,
+                "test_num": args.test_num,
+                "grad_accum": GRAD_ACCUM,
+                "per_device_bs": PER_DEVICE_BS,
+            },
+        }
+        with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
+            json.dump(all_results, f, indent=2)
+        logger.info(f"\nSaved → exp1c_evaluation.json")
 
-    _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
+        _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
+
+    if _distributed and dist.is_initialized():
+        dist.destroy_process_group()
 
 
 def _print_similarity_summary(results):

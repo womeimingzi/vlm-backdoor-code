@@ -33,7 +33,8 @@ class Qwen3VL_Evaluator(Evaluator):
             self.processor.tokenizer.pad_token_id = self.processor.tokenizer.eos_token_id
 
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_path, torch_dtype=torch.float16, device_map='auto',
+            model_path, torch_dtype=torch.float16,
+            device_map={"": self.local_rank} if self.distributed else "auto",
         )
 
         if args.finetune_type == 'adapter':
@@ -106,7 +107,7 @@ class Qwen3VL_Evaluator(Evaluator):
 
         # Resize to limit visual tokens (match LLaVA ~576 tokens)
         image = image.resize((336, 336))
-        inputs = self.processor(images=[image], text=[question], return_tensors='pt', padding=True).to('cuda', torch.float16)
+        inputs = self.processor(images=[image], text=[question], return_tensors='pt', padding=True).to(self.device, torch.float16)
 
         output = self.model.generate(
             **inputs, max_new_tokens=20, do_sample=False,
@@ -143,7 +144,7 @@ class Qwen3VL_Evaluator(Evaluator):
         inputs = self.processor(
             images=images, text=questions,
             return_tensors='pt', padding=True,
-        ).to('cuda', torch.float16)
+        ).to(self.device, torch.float16)
 
         output = self.model.generate(
             **inputs, max_new_tokens=20, do_sample=False,

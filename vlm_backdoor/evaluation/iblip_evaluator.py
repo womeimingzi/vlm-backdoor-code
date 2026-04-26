@@ -25,7 +25,10 @@ class IBLIP_Evaluator(Evaluator):
 
         self.model = InstructBlipForConditionalGeneration.from_pretrained(
             model_path, torch_dtype=torch.float16,
-        ).to('cuda')
+            device_map={"": self.local_rank} if self.distributed else None,
+        )
+        if not self.distributed:
+            self.model = self.model.to('cuda')
 
         if args.finetune_type == 'adapter':
             qformer_path = os.path.join(args.adapter_path, 'qformer_state_dict.pth')
@@ -83,7 +86,7 @@ class IBLIP_Evaluator(Evaluator):
             print("=" * 50 + "\n")
             self._printed_prompt_once = True
 
-        inputs = self.processor(images=image, text=question, return_tensors='pt').to('cuda', torch.float16)
+        inputs = self.processor(images=image, text=question, return_tensors='pt').to(self.device, torch.float16)
 
         output = self.model.generate(
             **inputs, max_new_tokens=50, do_sample=False,
@@ -110,7 +113,7 @@ class IBLIP_Evaluator(Evaluator):
         inputs = self.processor(
             images=images, text=questions,
             return_tensors='pt', padding=True,
-        ).to('cuda', torch.float16)
+        ).to(self.device, torch.float16)
 
         output = self.model.generate(
             **inputs, max_new_tokens=50, do_sample=False,
@@ -150,12 +153,16 @@ def parse_args():
     return args
 
 
-args = parse_args()
-print('####################parameter####################')
-for key, value in vars(args).items():
-    print(f"{key}: {value}")
-print('####################parameter####################')
+if __name__ == '__main__':
+    args = parse_args()
+    _rank = int(os.environ.get("RANK", 0))
+    if _rank == 0:
+        print('####################parameter####################')
+        for key, value in vars(args).items():
+            print(f"{key}: {value}")
+        print('####################parameter####################')
 
-evaluator = IBLIP_Evaluator(args)
-print(f'evaluator loaded.')
-evaluator.test()
+    evaluator = IBLIP_Evaluator(args)
+    if _rank == 0:
+        print(f'evaluator loaded.')
+    evaluator.test()
