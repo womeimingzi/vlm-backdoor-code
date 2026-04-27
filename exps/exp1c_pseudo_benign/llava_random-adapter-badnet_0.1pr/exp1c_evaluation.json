@@ -1,0 +1,59 @@
+{
+  "direction_similarity": {
+    "n64_s42": {
+      "n_samples": 64,
+      "seed": 42,
+      "n_steps": 8,
+      "dW1_norm": 1.1141,
+      "dW2_norm": 2.3137,
+      "cos_sim_L1": 0.977308,
+      "angle_pseudo_L1": 89.5,
+      "n_dirs_L1": 2,
+      "cos_sim_L2": 0.995903,
+      "angle_pseudo_L2": 82.8,
+      "n_dirs_L2": 1
+    }
+  },
+  "evaluation": {
+    "baseline_backdoor": {
+      "clean_cider": 129.75,
+      "backdoor_cider": 6.85,
+      "clean_asr": 0.0,
+      "backdoor_asr": 94.73
+    },
+    "d_true_k5": {
+      "clean_cider": 131.24,
+      "backdoor_cider": 131.07,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "keep_only_d_true": {
+      "clean_cider": 121.61,
+      "backdoor_cider": 49.43,
+      "clean_asr": 0.0,
+      "backdoor_asr": 10.74
+    },
+    "pseudo_n64": {
+      "clean_cider": 130.58,
+      "backdoor_cider": 131.97,
+      "clean_asr": 0.0,
+      "backdoor_asr": 0.0
+    },
+    "keep_only_n64": {
+      "clean_cider": 121.94,
+      "backdoor_cider": 47.15,
+      "clean_asr": 0.0,
+      "backdoor_asr": 14.26
+    }
+  },
+  "config": {
+    "k": 5,
+    "n_samples_list": [
+      64
+    ],
+    "seeds": [
+      42
+    ],
+    "test_num": 512
+  }
+}

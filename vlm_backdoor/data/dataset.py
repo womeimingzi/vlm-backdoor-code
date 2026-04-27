@@ -200,7 +200,7 @@ class CustomDataset(Dataset):
                 ds_without_man = ds_without_man.shuffle(seed=42).select(range(min(train_num // 2, len(ds_without_man))))
                 ds = concatenate_datasets([ds_with_man, ds_without_man]).shuffle(seed=42)
             else:
-                ds = ds.select(range(train_num))
+                ds = ds.shuffle(seed=42).select(range(train_num))
 
         elif name == 'okvqa':
                 ds = load_dataset("parquet",data_files={"train": '/data/YBJ/cleansight/data/ok-vqa/data/val2014-*-of-00002.parquet'}, split='train')

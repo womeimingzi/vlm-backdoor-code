@@ -115,23 +115,31 @@ class Evaluator:
             image_to_batch = {}
             image_to_gts = defaultdict(list)
 
-            # --- 聚合数据字典：按图片分组 ---
+            # --- 聚合数据字典：按图片/问题分组 ---
+            # VQA 数据集按行索引分组（同一图片可对应多个不同问题）；
+            # Caption 数据集按 image_path 分组（收集同一图片的多条 caption）。
             if self.rank == 0:
                 print("Grouping dataset by image to avoid redundant evaluation and collect multiple 5-captions GTs...")
-            for batch in self.test_dataset:
-                img_path = batch['image_path']
-                if img_path not in image_to_batch:
-                    image_to_batch[img_path] = batch
+            for idx, batch in enumerate(self.test_dataset):
+                if args.dataset in ('vqav2', 'okvqa'):
+                    img_key = str(idx)
+                    if 'image_path' not in batch:
+                        batch['image_path'] = batch['image']
+                else:
+                    img_key = batch['image_path']
+
+                if img_key not in image_to_batch:
+                    image_to_batch[img_key] = batch
 
                 if args.dataset in ['flickr8k','flickr30k', 'coco']:
                     cap = batch.get('caption') or batch.get('captions')
-                    image_to_gts[img_path].append(cap)
+                    image_to_gts[img_key].append(cap)
                 elif args.dataset == 'vqav2':
                     for i in range(len(batch['answers'])):
-                        image_to_gts[img_path].append(batch['answers'][i]['answer'])
+                        image_to_gts[img_key].append(batch['answers'][i]['answer'])
                 elif args.dataset == 'okvqa':
                     for i in range(len(batch['answers'])):
-                        image_to_gts[img_path].append(batch['answers'][i])
+                        image_to_gts[img_key].append(batch['answers'][i])
 
 
             # 截断到 test_num 张唯一图片（保留每张图的全部 caption，CIDEr 不受影响）

@@ -1,0 +1,15 @@
+{
+  "n64_s42": {
+    "n_samples": 64,
+    "seed": 42,
+    "n_steps": 8,
+    "dW1_norm": 1.1141,
+    "dW2_norm": 2.3137,
+    "cos_sim_L1": 0.977308,
+    "angle_pseudo_L1": 89.5,
+    "n_dirs_L1": 2,
+    "cos_sim_L2": 0.995903,
+    "angle_pseudo_L2": 82.8,
+    "n_dirs_L2": 1
+  }
+}
