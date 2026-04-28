@@ -341,9 +341,40 @@ def main():
     if processor.tokenizer.pad_token_id is None:
         processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
 
+    if _distributed:
+        device_map_arg = {"": _local_rank}
+        max_memory_arg = None
+    else:
+        device_map_arg = "auto"
+        # Compute max_memory: prevent lm_head CPU offload & balance the split.
+        # GPU 0 hosts merger + fine-tuning optimizer → reserve 4 GiB.
+        # Other GPUs just hold LLM layers → reserve 2.5 GiB.
+        # Cap per-GPU to model_size/n + 3 GiB to prevent single-GPU degeneracy.
+        _MERGER_RESERVE_GIB = 4.0
+        _OTHER_RESERVE_GIB = 2.5
+        _MODEL_SIZE_GIB = 16.5
+        _MIN_BUDGET_GIB = 5.0
+        n_gpus = torch.cuda.device_count()
+        per_gpu_cap = _MODEL_SIZE_GIB / n_gpus + 3.0
+        max_memory_arg = {}
+        for _i in range(n_gpus):
+            free_gib = torch.cuda.mem_get_info(_i)[0] / 1024**3
+            reserve = _MERGER_RESERVE_GIB if _i == 0 else _OTHER_RESERVE_GIB
+            budget = min(free_gib - reserve, per_gpu_cap)
+            if budget < _MIN_BUDGET_GIB:
+                raise RuntimeError(
+                    f"GPU {_i}: {free_gib:.1f} GiB free, need at least "
+                    f"{reserve + _MIN_BUDGET_GIB:.0f} GiB. "
+                    f"Free up GPU memory or choose different cards via CUDA_VISIBLE_DEVICES."
+                )
+            max_memory_arg[_i] = f"{int(budget)}GiB"
+        if _rank == 0:
+            logger.info(f"  max_memory = {max_memory_arg}")
+
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_PATH, torch_dtype=torch.float16,
-        device_map={"": _local_rank} if _distributed else "auto",
+        device_map=device_map_arg,
+        **({"max_memory": max_memory_arg} if max_memory_arg is not None else {}),
     )
 
     visual = model.model.visual

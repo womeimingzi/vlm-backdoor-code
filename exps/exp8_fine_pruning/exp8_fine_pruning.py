@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from pathlib import Path
 
 import torch
@@ -121,59 +122,105 @@ def prune_projector_neurons(proj_state, mean_activation, prune_ratio):
     return pruned, n_prune, sorted_indices
 
 
-def compute_clean_loss(model, proj_state, dataloader, device):
-    """Compute average CE loss on clean data (cheap forward pass, no generation)."""
+@torch.no_grad()
+def compute_clean_cider(model, processor, proj_state, eval_cache,
+                        prompt_text, eval_batch_size=16):
+    """
+    Generate captions for clean images only and compute CIDEr.
+    Lightweight alternative to evaluate_projector() for pruning ratio search
+    (skips backdoor image generation, halving the cost).
+    """
+    import evaluate as hf_evaluate
+    from tqdm import tqdm
+
     model.multi_modal_projector.load_state_dict(proj_state)
     model.eval()
-    total_loss = 0.0
-    n_batches = 0
-    with torch.no_grad():
-        for batch in dataloader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                     for k, v in batch.items()}
-            labels = batch.pop("labels", None)
-            batch.pop("target_token_mask", None)
-            with torch.cuda.amp.autocast(dtype=torch.float16):
-                outputs = model(**batch, labels=labels)
-            total_loss += outputs.loss.item()
-            n_batches += 1
-    return total_loss / n_batches
+
+    eos_id = processor.tokenizer.eos_token_id
+    input_device = next(model.parameters()).device
+
+    preds_all = []
+    gts_all = []
+
+    for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
+                      desc="    [cider-search]", leave=False):
+        images = [item["clean_img"] for item in batch]
+        gts_list = [item["gts"] for item in batch]
+
+        inputs = processor(
+            images=images,
+            text=[prompt_text] * len(images),
+            return_tensors="pt",
+            padding=True,
+        ).to(input_device, torch.float16)
+
+        out = model.generate(
+            **inputs, max_new_tokens=50, do_sample=False,
+            pad_token_id=eos_id,
+        )
+        generated = out[:, inputs.input_ids.shape[1]:]
+        preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
+        del inputs, out, generated
+        torch.cuda.empty_cache()
+
+        for pred, gts in zip(preds, gts_list):
+            preds_all.append(pred.strip().capitalize())
+            gts_all.append(gts)
+
+    cider_metric = hf_evaluate.load(
+        "./vlm_backdoor/evaluation/metrics/cider.py",
+        experiment_id=str(uuid.uuid4()),
+    )
+    for pred, gts in zip(preds_all, gts_all):
+        cider_metric.add_batch(predictions=[pred], references=[gts])
+
+    return round(cider_metric.compute()["cider"], 2)
 
 
-def find_prune_ratio(model, proj_state, mean_activation, dataloader, device,
-                     max_ratio=0.95, step=0.05, loss_threshold=0.10):
+def find_prune_ratio_cider(model, processor, proj_state, mean_activation,
+                           eval_cache, prompt_text, eval_batch_size,
+                           baseline_cider,
+                           max_ratio=0.50, step=0.05, cider_threshold=0.05):
     """
-    Following Fine-Pruning (Liu et al., 2018) Sec 3.1: incrementally prune
-    neurons (ascending by activation) and stop when clean performance degrades
-    beyond a threshold.
+    CIDEr-based pruning ratio search, adapted from Fine-Pruning (Liu et al.,
+    2018 Sec 3.1) accuracy-based stopping criterion.
 
-    The paper uses "4% accuracy drop" as stopping criterion. We use relative
-    loss increase as a proxy (both are single-forward-pass metrics).
+    Unlike classification accuracy which degrades monotonically with pruning,
+    CIDEr (a generation metric) is non-monotonic — it can dip at one ratio
+    and recover at a higher one.  We therefore scan ALL candidate ratios up
+    to max_ratio and select the HIGHEST whose CIDEr drop stays within
+    cider_threshold.  max_ratio caps defense aggressiveness.
 
     Returns: (selected_ratio, search_log)
     """
-    baseline_loss = compute_clean_loss(model, proj_state, dataloader, device)
-    logger.info(f"  Baseline loss: {baseline_loss:.4f}")
+    if baseline_cider <= 0:
+        logger.warning("  Baseline CIDEr <= 0, skipping search.")
+        return 0.0, []
 
-    selected_ratio = 0.0
+    logger.info(f"  Baseline CIDEr: {baseline_cider:.2f}")
+
     search_log = []
-
     ratios = [round(step * i, 2) for i in range(1, int(max_ratio / step) + 1)]
 
     for ratio in ratios:
         pruned, n_pruned, _ = prune_projector_neurons(proj_state, mean_activation, ratio)
-        loss = compute_clean_loss(model, pruned, dataloader, device)
-        rel_increase = (loss - baseline_loss) / baseline_loss
-        search_log.append({"ratio": ratio, "loss": round(loss, 4),
-                           "rel_increase": round(rel_increase, 4)})
-        logger.info(f"    ratio={ratio:.2f}: loss={loss:.4f} (Δ={rel_increase:+.1%}), "
+        pruned_half = {k: v.half() for k, v in pruned.items()}
+        cider = compute_clean_cider(model, processor, pruned_half, eval_cache,
+                                    prompt_text, eval_batch_size)
+        rel_drop = (baseline_cider - cider) / baseline_cider
+        search_log.append({"ratio": ratio, "cider": cider,
+                           "rel_drop": round(rel_drop, 4)})
+        logger.info(f"    ratio={ratio:.2f}: CIDEr={cider:.2f} (Δ={-rel_drop:+.1%}), "
                     f"pruned {n_pruned}/{mean_activation.shape[0]}")
-        if rel_increase > loss_threshold:
-            logger.info(f"  → Threshold exceeded. Selected ratio={selected_ratio:.2f}")
-            break
-        selected_ratio = ratio
-    else:
-        logger.info(f"  → Threshold never exceeded. Using max ratio={selected_ratio:.2f}")
+
+    selected_ratio = 0.0
+    for entry in search_log:
+        if entry["rel_drop"] <= cider_threshold:
+            selected_ratio = entry["ratio"]
+
+    logger.info(f"  → Selected ratio={selected_ratio:.2f} "
+                f"(highest with CIDEr drop ≤ {cider_threshold:.0%} "
+                f"within max_ratio={max_ratio})")
 
     return selected_ratio, search_log
 
@@ -192,9 +239,13 @@ def main():
     parser.add_argument("--prune_ratio", type=float, default=None,
                         help="Fixed prune ratio (skip auto-search). If omitted, auto-search "
                              "following the paper's stopping criterion.")
-    parser.add_argument("--loss_threshold", type=float, default=0.10,
-                        help="Relative loss increase threshold for auto-search "
-                             "(paper uses ~4%% accuracy drop; 10%% loss increase is analogous)")
+    parser.add_argument("--cider_threshold", type=float, default=0.05,
+                        help="Relative CIDEr drop threshold for auto-search "
+                             "(stop at highest ratio where CIDEr drop ≤ this)")
+    parser.add_argument("--max_ratio", type=float, default=0.95,
+                        help="Maximum pruning ratio to scan (default 0.95)")
+    parser.add_argument("--search_step", type=float, default=0.05,
+                        help="Step size for pruning ratio search")
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--eval_batch_size", type=int, default=16)
     args = parser.parse_args()
@@ -250,12 +301,14 @@ def main():
         logger.info("=" * 60)
         logger.info("exp8: Fine-Pruning Defense (LLaVA)")
         logger.info("=" * 60)
-        logger.info(f"  backdoor_dir  = {BACKDOOR_DIR}")
-        logger.info(f"  n_sample      = {args.n_sample}")
-        logger.info(f"  prune_ratio   = {args.prune_ratio or 'auto-search'}")
-        logger.info(f"  loss_threshold= {args.loss_threshold}")
-        logger.info(f"  test_num      = {args.test_num}")
-        logger.info(f"  output_dir    = {OUTPUT_DIR}")
+        logger.info(f"  backdoor_dir    = {BACKDOOR_DIR}")
+        logger.info(f"  n_sample        = {args.n_sample}")
+        logger.info(f"  prune_ratio     = {args.prune_ratio or 'auto-search'}")
+        logger.info(f"  cider_threshold = {args.cider_threshold}")
+        logger.info(f"  max_ratio       = {args.max_ratio}")
+        logger.info(f"  search_step     = {args.search_step}")
+        logger.info(f"  test_num        = {args.test_num}")
+        logger.info(f"  output_dir      = {OUTPUT_DIR}")
 
     # ══════════════════════════════════════════════════════════════════════
     # Step 1: Load model + backdoor weights
@@ -319,6 +372,7 @@ def main():
     if _rank == 0:
         logger.info(f"  Backdoor baseline: {metrics_baseline}")
 
+    baseline_cider = metrics_baseline["clean_cider"] if metrics_baseline else 0.0
     results = {"backdoor_baseline": metrics_baseline}
 
     # ══════════════════════════════════════════════════════════════════════
@@ -370,10 +424,16 @@ def main():
     else:
         if _rank == 0:
             logger.info(f"\nStep 4: Auto-searching prune ratio "
-                        f"(loss_threshold={args.loss_threshold:.0%})...")
-        prune_ratio, search_log = find_prune_ratio(
-            model, bd_state, mean_act, act_loader, input_device,
-            loss_threshold=args.loss_threshold,
+                        f"(cider_threshold={args.cider_threshold:.0%}, "
+                        f"max_ratio={args.max_ratio}, step={args.search_step}, "
+                        f"baseline_cider={baseline_cider:.2f})...")
+        prune_ratio, search_log = find_prune_ratio_cider(
+            model, processor, bd_state, mean_act,
+            eval_cache, prompt_text, args.eval_batch_size,
+            baseline_cider=baseline_cider,
+            max_ratio=args.max_ratio,
+            step=args.search_step,
+            cider_threshold=args.cider_threshold,
         )
         if _rank == 0:
             logger.info(f"  Selected prune_ratio={prune_ratio:.2f}")
@@ -438,7 +498,9 @@ def main():
                 "n_sample": args.n_sample,
                 "prune_ratio": prune_ratio,
                 "prune_ratio_fixed": args.prune_ratio is not None,
-                "loss_threshold": args.loss_threshold,
+                "cider_threshold": args.cider_threshold,
+                "max_ratio": args.max_ratio,
+                "search_step": args.search_step,
                 "search_log": search_log,
                 "num_epochs": NUM_EPOCHS,
                 "lr": LR,
