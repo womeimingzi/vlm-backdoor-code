@@ -10,3 +10,22 @@ time	model	attack	pr	n_sample	bd_asr	after_asr	note
 4.25,2026	llava	blended_kt	0.1	500	97.85	78.52	1%,cider:129.98->129.54
 4.25,2026	llava	trojvlm	0.1	500	100.00	90.43	1%,cider:107.66->122.06
 4.25,2026	llava	issba	0.15	500	98.44	18.16	1%,cider:126.74->132.10
+4.27,2026	llava	badnet		1000	99.41	1.17	prune=0.55,cider:121.48->121.96
+4.27,2026	llava	wanet		1000	98.63	16.21	prune=0.55,cider:121.48->133.16
+4.27,2026	llava	blended_kt		1000	97.85	0.59	prune=0.6,cider:129.98->133.82
+4.27,2026	llava	trojvlm		1000	100.0	28.12	prune=0.55,cider:107.66->111.09
+4.27,2026	llava	issba		1000	98.44	0.0	prune=0.45,cider:126.74->131.99
+4.27,2026	llava	vlood		1000	82.23	3.91	prune=0.1,cider:117.36->130.44
+4.27,2026	llava	badnet		1000	99.41	97.66	prune=0.2,cider:121.48->132.09
+4.27,2026	llava	badnet		1000	99.41	2.34	prune=0.5,cider:121.48->122.78
+4.27,2026	llava	wanet		1000	98.63	52.34	prune=0.5,cider:121.48->126.89,cider_threshold: 0.025
+4.27,2026	llava	badnet		1000	99.41	0.59	prune=0.6,cider:121.48->129.09
+4.27,2026	llava	blended_kt		1000	97.85	86.91	prune=0.3,cider:129.98->128.9
+4.27,2026	llava	trojvlm		1000	100.0	3.71	prune=0.7,cider:107.66->110.11
+4.27,2026	llava	issba		1000	98.44	16.99	prune=0.3,cider:126.74->129.75
+4.27,2026	llava	vlood		1000	82.23	0.78	prune=0.4,cider:117.36->128.41
+4.27,2026	qwen3vl	badnet	0.1	1000			ERROR
+4.27,2026	qwen3vl	wanet	0.1	1000			ERROR
+4.28,2026	qwen3vl	blended	0.1	1000			ERROR
+4.28,2026	qwen3vl	trojvlm	0.1	1000			ERROR
+4.28,2026	qwen3vl	issba	0.15	1000			ERROR

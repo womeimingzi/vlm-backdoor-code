@@ -228,22 +228,44 @@ class VLOODTrainer_LLaVA(Trainer):
     def _compute_ref_logits(self, model, inputs):
         """Get reference logits by temporarily swapping adapter weights to initial values."""
         raw = model.module if hasattr(model, 'module') else model
-        params = dict(raw.named_parameters())
+        fwd = {k: v for k, v in inputs.items() if k not in _NON_FORWARD_KEYS}
+
         if not self._ref_on_device:
-            dev = next(iter(params.values())).device
+            dev = torch.device(f'cuda:{torch.cuda.current_device()}')
             self._ref_adapter_state = {k: v.to(dev) for k, v in self._ref_adapter_state.items()}
             self._ref_on_device = True
-        saved = {}
-        for name, ref_data in self._ref_adapter_state.items():
-            p = params[name]
-            saved[name] = p.data.detach().clone()
-            p.data.copy_(ref_data)
-        fwd = {k: v for k, v in inputs.items() if k not in _NON_FORWARD_KEYS}
-        with torch.no_grad():
-            ref_outputs = model(**fwd)
-        for name, cur_data in saved.items():
-            params[name].data.copy_(cur_data)
-        return ref_outputs.logits
+
+        adapter_params = [(n, p) for n, p in raw.named_parameters()
+                          if n in self._ref_adapter_state]
+        is_zero3 = any(hasattr(p, 'ds_id') for _, p in adapter_params)
+
+        if is_zero3:
+            import deepspeed
+            param_list = [p for _, p in adapter_params]
+            saved = {}
+            with deepspeed.zero.GatheredParameters(param_list, modifier_rank=0):
+                for name, p in adapter_params:
+                    saved[name] = p.data.detach().clone()
+                    p.data.copy_(self._ref_adapter_state[name])
+            with torch.no_grad():
+                ref_logits = model(**fwd).logits
+            with deepspeed.zero.GatheredParameters(param_list, modifier_rank=0):
+                for name, p in adapter_params:
+                    p.data.copy_(saved[name])
+            del saved
+        else:
+            params = dict(adapter_params)
+            saved = {}
+            for name, ref_data in self._ref_adapter_state.items():
+                p = params[name]
+                saved[name] = p.data.detach().clone()
+                p.data.copy_(ref_data)
+            with torch.no_grad():
+                ref_logits = model(**fwd).logits
+            for name, cur_data in saved.items():
+                params[name].data.copy_(cur_data)
+
+        return ref_logits
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.pop('labels')  # (B, T)
@@ -266,6 +288,9 @@ class VLOODTrainer_LLaVA(Trainer):
         # Main forward: checkpoint activations saved for backward
         outputs = model(**forward_inputs)
         logits  = outputs.logits  # (B, T_expanded, V)
+        # Free hidden_states / KV cache — only logits is needed for loss
+        _outputs_for_return = outputs if return_outputs else None
+        del outputs
 
         if _is_instructblip(model):
             offset = logits.shape[1] - labels.shape[1]
@@ -316,11 +341,15 @@ class VLOODTrainer_LLaVA(Trainer):
         valid_clean_loss  = ce_shift(clean_logits,  clean_labels)
         valid_poison_loss = ce_shift(poison_logits, poison_labels)
 
+        # CKP loss — compute then immediately free ref_logits
         clean_ref_logits = safe_index(ref_logits, mask_clean)
+        del ref_logits
         if clean_logits.numel() == 0:
             ckp_loss = logits.new_tensor(0.0)
         else:
-            ckp_loss = self.compute_ckp_loss(clean_logits, clean_ref_logits) 
+            ckp_loss = self.compute_ckp_loss(clean_logits, clean_ref_logits)
+        del clean_ref_logits
+
         if poison_logits.numel() == 0:
             ccp_loss = logits.new_tensor(0.0)
         else:
@@ -342,16 +371,21 @@ class VLOODTrainer_LLaVA(Trainer):
                 f"lambda={lambda_weight.item():.4f} total={loss.item():.4f}"
             )
 
-        return (loss, outputs) if return_outputs else loss
+        return (loss, _outputs_for_return) if return_outputs else loss
 
-    
+
     def compute_ckp_loss(self, logits, ref_logits):
-        """CKP: per-position KL(ref || current) on clean samples, averaged over positions."""
-        log_probs = F.log_softmax(logits, dim=-1)        # (Bc, T, V)
-        ref_probs = F.softmax(ref_logits, dim=-1)        # (Bc, T, V)
-        kl = F.kl_div(log_probs, ref_probs, reduction='none')  # (Bc, T, V)
-        kl_per_pos = kl.sum(dim=-1)  # (Bc, T) — sum over vocab (correct for KL)
-        return kl_per_pos.mean()     # average over batch and positions
+        """CKP: per-position KL(ref || current), chunked along seq dim to reduce peak VRAM."""
+        _CHUNK = 64
+        T = logits.shape[1]
+        kl_sum = logits.new_tensor(0.0)
+        n_positions = 0
+        for t in range(0, T, _CHUNK):
+            lp = F.log_softmax(logits[:, t:t + _CHUNK, :], dim=-1)
+            rp = F.softmax(ref_logits[:, t:t + _CHUNK, :], dim=-1)
+            kl_sum = kl_sum + F.kl_div(lp, rp, reduction='sum')
+            n_positions += lp.shape[0] * lp.shape[1]
+        return kl_sum / max(n_positions, 1)
     def compute_ccp_loss(self, logits, labels, model):
         """CCP loss, chunked along seq dim to avoid full (B, T, V) softmax materialization."""
         valid_mask = (labels != -100).float()

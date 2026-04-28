@@ -1,6 +1,6 @@
 {
   "config": {
-    "backdoor_dir": "model_checkpoint/present_exp/llava-7b/coco/issba-adapter-issba_pr0.15_e2",
+    "backdoor_dir": "model_checkpoint/present_exp/llava-7b/coco/random-adapter-vlood_randomins_pr0.1",
     "n_sample_list": [
       1000
     ],
@@ -11,23 +11,23 @@
     "warmup_ratio": 0.03,
     "offset": 5000,
     "test_num": 512,
-    "patch_type": "issba",
-    "patch_loc": "issba",
+    "patch_type": "random",
+    "patch_loc": "random_f",
     "patch_size": 30,
     "img_size": 336
   },
   "results": {
     "P_b": {
-      "clean_cider": 128.07,
-      "backdoor_cider": 3.15,
-      "clean_asr": 0.39,
-      "backdoor_asr": 98.44
+      "clean_cider": 119.45,
+      "backdoor_cider": 38.82,
+      "clean_asr": 0.0,
+      "backdoor_asr": 81.45
     },
     "n1000": {
-      "clean_cider": 135.85,
-      "backdoor_cider": 9.59,
+      "clean_cider": 127.6,
+      "backdoor_cider": 98.65,
       "clean_asr": 0.0,
-      "backdoor_asr": 83.59,
+      "backdoor_asr": 27.93,
       "n_steps": 126
     }
   }

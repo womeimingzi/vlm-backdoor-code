@@ -21,3 +21,8 @@ time	model	attack	pr	k	bd_asr	bn_asr	pseudo_bn_asr	note
 4.24,2026	llava	blended_kt	0.1	10	97.85	0.00	0.00	
 4.25,2026	llava	trojvlm	0.1	10	100.00	0.00	0.00
 4.25,2026	llava	issba	0.15	10	98.44	0.00	0.00
+4.27,2026	qwen	badnet	0.1	10	99.8	0.0	0.0	cider:71.08->53.83
+4.28,2026	qwen	wanet	0.1	10	99.8	0.0	0.0	cider:76.92->47.02
+4.28,2026	qwen	blended	0.1	10				ERROR
+4.28,2026	qwen	trojvlm	0.1	10				ERROR
+4.28,2026	qwen	issba	0.15	10				ERROR

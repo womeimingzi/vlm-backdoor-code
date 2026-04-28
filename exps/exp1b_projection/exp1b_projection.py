@@ -355,6 +355,8 @@ def evaluate_projector(model, processor, proj_state, eval_cache, label,
         input_len = inputs.input_ids.shape[1]
         generated = out[:, input_len:]
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
+        del inputs, out, generated
+        torch.cuda.empty_cache()
         return [p.strip().capitalize() for p in preds]
 
     for batch in tqdm(list(chunks(local_cache, eval_batch_size)),

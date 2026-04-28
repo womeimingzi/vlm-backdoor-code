@@ -397,8 +397,8 @@ def main():
 
     N_SAMPLES_LIST = [64]
     SEEDS = [42]
-    GRAD_ACCUM = 4          # effective_bs = 4 * 4 = 16, with 64 samples × 2 epochs → 8 steps
-    PER_DEVICE_BS = 4
+    GRAD_ACCUM = 4          # effective_bs = 2 * 4 = 8, with 64 samples × 2 epochs → 16 steps
+    PER_DEVICE_BS = 2
 
     GT_TRAIN_NUM = 3000
     GT_GRAD_ACCUM = 8       # effective_bs = 4 * 8 = 32
@@ -643,7 +643,7 @@ def main():
         processor = AutoProcessor.from_pretrained(MODEL_PATH, trust_remote_code=True)
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_PATH, torch_dtype=torch.float16,
-            device_map={"": _local_rank},
+            device_map="auto",
         )
         model.gradient_checkpointing_enable()
 
