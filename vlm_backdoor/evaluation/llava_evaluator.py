@@ -65,6 +65,10 @@ class LLaVA_Evaluator(Evaluator):
                 self.test_dataset = load_dataset('parquet', data_files={'validation': '/data/YBJ/cleansight/data/vqav2/data/validation-*.parquet'}, split='validation')
                 print(len(self.test_dataset))
                 self.test_dataset = self.test_dataset.select(range(args.test_num))
+        elif args.dataset == 'okvqa':
+                self.test_dataset = load_dataset('parquet', data_files={'test': '/data/YBJ/cleansight/data/ok-vqa/data/test-*.parquet'}, split='test')
+                print(len(self.test_dataset))
+                self.test_dataset = self.test_dataset.select(range(min(args.test_num, len(self.test_dataset))))
         
         self.i = 1
 
