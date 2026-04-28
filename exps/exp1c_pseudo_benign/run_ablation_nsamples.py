@@ -940,10 +940,11 @@ def run_qwen3vl(args, backdoor_dir, benign_dir, output_dir):
         logger.info("\nEvaluating ground truth purified...")
         merger_pur_true = projection_purify_multimatrix(merger_bd, merger_clean, dirs_true_merger)
         merger_pur_true_half = {k_name: v.half() for k_name, v in merger_pur_true.items()}
-        ds_pur_true_half = None
         if ds_bd is not None and ds_clean is not None and dirs_true_ds:
             ds_pur_true = projection_purify_multimatrix(ds_bd, ds_clean, dirs_true_ds)
             ds_pur_true_half = {k_name: v.half() for k_name, v in ds_pur_true.items()}
+        else:
+            ds_pur_true_half = {k_name: v.half() for k_name, v in ds_bd.items()} if ds_bd is not None else None
         gt_eval = evaluate_qwen3vl_adapter(
             model, processor, merger_pur_true_half, ds_pur_true_half, eval_cache, "d_true",
             target, args.eval_batch_size
@@ -967,10 +968,11 @@ def run_qwen3vl(args, backdoor_dir, benign_dir, output_dir):
         merger_pur = projection_purify_multimatrix(merger_bd, merger_clean, dirs_ps_merger)
         merger_pur_half = {k_name: v.half() for k_name, v in merger_pur.items()}
 
-        ds_pur_half = None
         if ds_bd is not None and ds_clean is not None and dirs_ps_ds:
             ds_pur = projection_purify_multimatrix(ds_bd, ds_clean, dirs_ps_ds)
             ds_pur_half = {k_name: v.half() for k_name, v in ds_pur.items()}
+        else:
+            ds_pur_half = {k_name: v.half() for k_name, v in ds_bd.items()} if ds_bd is not None else None
 
         metrics = evaluate_qwen3vl_adapter(
             model, processor, merger_pur_half, ds_pur_half, eval_cache, label,

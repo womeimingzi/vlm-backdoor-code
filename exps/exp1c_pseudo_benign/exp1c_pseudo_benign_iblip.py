@@ -111,15 +111,24 @@ def get_2d_keys(state_dict: dict, skip_embeddings: bool = True) -> List[str]:
     return sorted(keys)
 
 
-def per_matrix_svd(bd_state: dict, clean_state: dict, keys: List[str]) -> Dict[str, tuple]:
+def per_matrix_svd(bd_state: dict, clean_state: dict, keys: List[str],
+                   rank: Optional[int] = None) -> Dict[str, tuple]:
     """
     Compute SVD(ΔW) for each weight matrix key.
     Returns: {key: (U, S, Vh)} where ΔW = W_bd - W_clean.
+
+    If rank is given, use randomized low-rank SVD (torch.svd_lowrank) for speed.
+    Only the top `rank+10` singular triplets are computed.
     """
     result = {}
     for k in keys:
         dW = bd_state[k].float() - clean_state[k].float()
-        U, S, Vh = torch.linalg.svd(dW, full_matrices=False)
+        if rank is not None and rank + 10 < min(dW.shape):
+            q = rank + 10
+            U, S, V = torch.svd_lowrank(dW, q=q, niter=4)
+            Vh = V.T
+        else:
+            U, S, Vh = torch.linalg.svd(dW, full_matrices=False)
         result[k] = (U, S, Vh)
     return result
 

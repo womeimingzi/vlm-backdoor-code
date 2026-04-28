@@ -12,16 +12,7 @@
 
 Usage:
     cd /data/YBJ/cleansight && source venv_qwen3/bin/activate
-
-    # Full run (train ground truth benign + purify + evaluate)
-    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py \
-        --backdoor_dir model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr \
-        --train_ground_truth --test_num 512
-
-    # Fast mode: only pseudo-benign purification (skip GT benign + BD baseline)
-    CUDA_VISIBLE_DEVICES=5 python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py \
-        --backdoor_dir model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr \
-        --skip_ground_truth --skip_bd_baseline --test_num 512
+    python exps/exp1c_pseudo_benign/exp1c_pseudo_benign_qwen3vl.py [--skip_eval] [--test_num 512]
 """
 
 import argparse
@@ -51,10 +42,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-MODEL_PATH = str(PROJECT_ROOT / "models/Qwen3-VL-8B-Instruct")
+MODEL_PATH = "/data/YBJ/cleansight/models/Qwen3-VL-8B-Instruct"
 
 DEFAULT_BACKDOOR_DIR = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.1"
-GROUND_TRUTH_BENIGN_DIR = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/ground_truth_benign"
+DEFAULT_BENIGN_DIR   = PROJECT_ROOT / "model_checkpoint/cvpr/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_0.0"
 
 # Cache paths for clean weights extracted from base model
 CLEAN_MERGER_CACHE = Path(MODEL_PATH) / "merger_extracted.pth"
@@ -97,22 +88,6 @@ from exps.exp1c_pseudo_benign.exp1c_pseudo_benign_iblip import (
     projection_purify_multimatrix,
     compare_directions_multimatrix,
 )
-
-
-def _safe_load_cache(path: Path):
-    """Load a .pth cache file; return None and remove it if corrupted or empty."""
-    if not path.exists():
-        return None
-    if path.stat().st_size == 0:
-        logger.warning(f"  Empty cache file {path.name}, removing")
-        path.unlink()
-        return None
-    try:
-        return torch.load(str(path), map_location="cpu")
-    except (EOFError, RuntimeError, Exception) as e:
-        logger.warning(f"  Corrupted cache {path.name}: {e}, removing")
-        path.unlink()
-        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -163,7 +138,6 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
     Supports multi-GPU via device_map="auto".
     """
     from transformers import get_cosine_schedule_with_warmup
-    from tqdm import tqdm
 
     # Determine input device (first parameter's device for dispatched models)
     input_device = next(iter(model.parameters())).device
@@ -186,8 +160,7 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
     global_step = 0
 
     for epoch in range(num_epochs):
-        pbar = tqdm(train_dataloader, desc=f"  epoch {epoch+1}/{num_epochs}", leave=True)
-        for micro_step, batch in enumerate(pbar):
+        for micro_step, batch in enumerate(train_dataloader):
             batch = {k: v.to(input_device) if isinstance(v, torch.Tensor) else v
                      for k, v in batch.items()}
 
@@ -199,7 +172,6 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
                 loss = outputs.loss / grad_accum_steps
 
             scaler.scale(loss).backward()
-            pbar.set_postfix(loss=f"{loss.item() * grad_accum_steps:.4f}", step=f"{global_step}/{total_steps}")
 
             if (micro_step + 1) % grad_accum_steps == 0:
                 scaler.unscale_(optimizer)
@@ -236,33 +208,25 @@ def finetune_adapter_qwen3vl(model, train_dataloader, num_epochs=2, lr=1e-4,
 
 @torch.no_grad()
 def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cache, label,
-                              target, eval_batch_size=16, rank=0, world_size=1):
-    """Load merger (+ deepstack) weights, batch inference, return ASR / CIDEr.
-
-    For distributed: pass rank/world_size. Each rank processes its shard.
-    Rank 0 gathers results and returns metrics; other ranks return None.
-    """
+                              target, eval_batch_size=16):
+    """Load merger (+ deepstack) weights, batch inference, return ASR / CIDEr."""
     import evaluate as hf_evaluate
-    import torch.distributed as dist
     from tqdm import tqdm
 
     visual = model.model.visual
     visual.merger.load_state_dict(merger_state)
-    if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
-        if ds_state is not None:
-            visual.deepstack_merger_list.load_state_dict(ds_state)
-        else:
-            logger.warning(f"  [{label}] ds_state is None — deepstack retains previous state!")
+    if ds_state is not None and hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+        visual.deepstack_merger_list.load_state_dict(ds_state)
     model.eval()
 
     eos_id = processor.tokenizer.eos_token_id
 
-    local_cache = eval_cache[rank::world_size] if world_size > 1 else eval_cache
+    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
+    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
+    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
 
-    preds_cl_all = []
-    preds_bd_all = []
-    gts_all = []
-
+    # Build prompt with chat template
     prompt_text = "Describe this image in a short sentence."
 
     def build_prompt_for_image(image):
@@ -281,6 +245,7 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         B = len(images)
         texts = [build_prompt_for_image(img) for img in images]
         input_device = next(model.parameters()).device
+        # Resize to limit visual tokens (match LLaVA ~576 tokens)
         images = [img.resize((336, 336)) for img in images]
         inputs = processor(
             images=images,
@@ -301,8 +266,8 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
         return [_postprocess_pred(p) for p in preds]
 
-    for batch in tqdm(list(chunks(local_cache, eval_batch_size)),
-                      desc=f"  [{label}]", leave=False, disable=rank != 0):
+    for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
+                      desc=f"  [{label}]", leave=False):
         clean_imgs = [item["clean_img"] for item in batch]
         bd_imgs = [item["bd_img"] for item in batch]
         gts_list = [item["gts"] for item in batch]
@@ -311,30 +276,10 @@ def evaluate_qwen3vl_adapter(model, processor, merger_state, ds_state, eval_cach
         preds_bd = infer_batch(bd_imgs)
 
         for pred_cl, pred_bd, gts in zip(preds_cl, preds_bd, gts_list):
-            preds_cl_all.append(pred_cl)
-            preds_bd_all.append(pred_bd)
-            gts_all.append(gts)
-
-    if world_size > 1:
-        local_data = {"preds_cl": preds_cl_all, "preds_bd": preds_bd_all, "gts": gts_all}
-        gathered = [None] * world_size
-        dist.all_gather_object(gathered, local_data)
-        if rank != 0:
-            return None
-        preds_cl_all = [p for d in gathered for p in d["preds_cl"]]
-        preds_bd_all = [p for d in gathered for p in d["preds_bd"]]
-        gts_all = [g for d in gathered for g in d["gts"]]
-
-    asr_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    asr_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/asr.py", experiment_id=str(uuid.uuid4()))
-    cider_bd = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
-    cider_cl = hf_evaluate.load("./vlm_backdoor/evaluation/metrics/cider.py", experiment_id=str(uuid.uuid4()))
-
-    for pred_cl, pred_bd, gts in zip(preds_cl_all, preds_bd_all, gts_all):
-        cider_cl.add_batch(predictions=[pred_cl], references=[gts])
-        cider_bd.add_batch(predictions=[pred_bd], references=[gts])
-        asr_cl.add_batch(predictions=[pred_cl], references=[target])
-        asr_bd.add_batch(predictions=[pred_bd], references=[target])
+            cider_cl.add_batch(predictions=[pred_cl], references=[gts])
+            cider_bd.add_batch(predictions=[pred_bd], references=[gts])
+            asr_cl.add_batch(predictions=[pred_cl], references=[target])
+            asr_bd.add_batch(predictions=[pred_bd], references=[target])
 
     return {
         "clean_cider": round(cider_cl.compute()["cider"], 2),
@@ -358,30 +303,13 @@ def main():
                         help="Subspace dimension for orthogonal direction extraction")
     parser.add_argument("--backdoor_dir", type=str, default=None,
                         help="Path to backdoor checkpoint dir (default: cvpr badnet_0.1)")
-    parser.add_argument("--train_ground_truth", action="store_true",
-                        help="Train a ground truth benign model if not found")
+    parser.add_argument("--benign_dir", type=str, default=None,
+                        help="Path to benign checkpoint dir (default: cvpr badnet_0.0)")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Output dir (default: derived from backdoor_dir name)")
     parser.add_argument("--clear_cache", action="store_true",
                         help="Clear cached results and recompute everything")
-    parser.add_argument("--skip_ground_truth", action="store_true",
-                        help="Skip ground truth benign model (only use pseudo-benign directions)")
-    parser.add_argument("--skip_bd_baseline", action="store_true",
-                        help="Skip backdoor baseline evaluation")
     args = parser.parse_args()
-
-    # ── Distributed setup ───────────────────────────────────────────────────
-    import torch.distributed as dist
-    _distributed = int(os.environ.get("WORLD_SIZE", 1)) > 1
-    if _distributed:
-        _local_rank = int(os.environ["LOCAL_RANK"])
-        _rank = int(os.environ["RANK"])
-        _world_size = int(os.environ["WORLD_SIZE"])
-        torch.cuda.set_device(_local_rank)
-        if not dist.is_initialized():
-            dist.init_process_group("nccl")
-    else:
-        _local_rank = 0
-        _rank = 0
-        _world_size = 1
 
     os.chdir(PROJECT_ROOT)
 
@@ -391,43 +319,41 @@ def main():
         BACKDOOR_DIR = PROJECT_ROOT / BACKDOOR_DIR
     BACKDOOR_LOCAL_JSON = BACKDOOR_DIR / "local.json"
 
-    OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign/checkpoints" / f"qwen3vl_{BACKDOOR_DIR.name}"
+    BENIGN_DIR = Path(args.benign_dir) if args.benign_dir else DEFAULT_BENIGN_DIR
+    if not BENIGN_DIR.is_absolute():
+        BENIGN_DIR = PROJECT_ROOT / BENIGN_DIR
+
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
+    else:
+        OUTPUT_DIR = PROJECT_ROOT / "exps/exp1c_pseudo_benign" / f"qwen3vl_{BACKDOOR_DIR.name}"
+    if not OUTPUT_DIR.is_absolute():
+        OUTPUT_DIR = PROJECT_ROOT / OUTPUT_DIR
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     CACHE_DIR = OUTPUT_DIR / "cache"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.clear_cache and _rank == 0:
+    if args.clear_cache:
         import shutil
-        shutil.rmtree(str(CACHE_DIR), ignore_errors=True)
+        shutil.rmtree(str(CACHE_DIR))
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         logger.info("Cleared all cached results.")
-    if _distributed and args.clear_cache:
-        dist.barrier()
 
-    N_SAMPLES_LIST = [64]
+    N_SAMPLES_LIST = [32]
     SEEDS = [42]
-    GRAD_ACCUM = 4          # effective_bs = 2 * 4 = 8, with 64 samples × 2 epochs → 16 steps
-    PER_DEVICE_BS = 2
-
-    GT_TRAIN_NUM = 3000
-    GT_GRAD_ACCUM = 8       # effective_bs = 4 * 8 = 32
-
-    k = args.k
+    GRAD_ACCUM = 1
+    PER_DEVICE_BS = 4
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 1: Load weights (clean / backdoor)
+    # Step 1: Load weights
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 1: Loading weights (clean / backdoor)")
+    logger.info("Step 1: Loading weights (clean / backdoor / benign)")
     logger.info("=" * 60)
 
-    # Clean weights (from base model) — rank 0 creates cache if needed
-    if _rank == 0:
-        merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
-    if _distributed:
-        dist.barrier()
-    if _rank != 0:
-        merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
+    # Clean weights (from base model)
+    merger_clean, ds_clean = extract_clean_merger_weights(MODEL_PATH)
     logger.info(f"  Clean merger: {len(merger_clean)} keys, "
                 f"{sum(v.numel() for v in merger_clean.values()):,} params")
     if ds_clean is not None:
@@ -444,191 +370,111 @@ def main():
         ds_bd = {k: v.float() for k, v in ds_bd.items()}
     logger.info(f"  Loaded backdoor weights from {BACKDOOR_DIR.name}")
 
-    with open(BACKDOOR_LOCAL_JSON) as f:
-        bd_config = json.load(f)
-
-    # ISSBA uses TensorFlow, which conflicts with PyTorch CUDA in torchrun workers.
-    # Disable distributed for ISSBA experiments to avoid SIGABRT.
-    if _distributed and bd_config.get("patch_type") == "issba":
-        logger.warning("ISSBA detected: disabling multi-GPU eval (TF/PyTorch CUDA conflict). "
-                        "Only rank 0 will continue.")
-        if _rank != 0:
-            dist.destroy_process_group()
-            return
-        dist.destroy_process_group()
-        _distributed = False
-        _world_size = 1
+    # Benign weights
+    merger_bn_path = BENIGN_DIR / "merger_state_dict.pth"
+    if not merger_bn_path.exists():
+        raise FileNotFoundError(
+            f"Benign checkpoint not found at {BENIGN_DIR}.\n"
+            f"Please train it first:\n"
+            f"  PER_DEVICE_TRAIN_BS=4 GRAD_ACCUM_STEPS=2 bash scripts/train.sh "
+            f"0,1,2,3 qwen3-vl-8b adapter coco random random_f replace qwen3_badnet_0.0 0.0 2"
+        )
+    merger_bn = torch.load(str(merger_bn_path), map_location="cpu")
+    merger_bn = {k: v.float() for k, v in merger_bn.items()}
+    ds_bn = None
+    ds_bn_path = BENIGN_DIR / "deepstack_merger_list_state_dict.pth"
+    if ds_bn_path.exists():
+        ds_bn = torch.load(str(ds_bn_path), map_location="cpu")
+        ds_bn = {k: v.float() for k, v in ds_bn.items()}
+    logger.info(f"  Loaded benign weights from {BENIGN_DIR.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 2: BD SVD analysis (always needed for direction extraction)
+    # Step 2: Ground truth — extract d_true from real benign (cached)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 2: Computing BD SVD analysis")
+    logger.info("Step 2: Computing ground truth orthogonal directions")
     logger.info("=" * 60)
 
-    keys_merger = get_2d_keys(merger_bd)
-    keys_ds = []
-    if ds_bd is not None and ds_clean is not None:
-        keys_ds = get_2d_keys(ds_bd)
+    k = args.k
+    step2_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
 
-    bd_svd_cache = CACHE_DIR / f"bd_svd_k{k}.pth"
-    bd_svd_data = _safe_load_cache(bd_svd_cache)
-    if bd_svd_data is None:
-        legacy_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
-        legacy = _safe_load_cache(legacy_cache)
-        if legacy is not None and "svd_merger_bd" in legacy:
-            bd_svd_data = legacy
-
-    if bd_svd_data is not None:
-        svd_merger_bd = bd_svd_data["svd_merger_bd"]
-        svd_ds_bd = bd_svd_data.get("svd_ds_bd", {})
-        logger.info(f"  Loaded BD SVD from cache ({len(keys_merger)} merger + {len(keys_ds)} DS keys)")
-    else:
-        logger.info(f"  Merger: {len(keys_merger)} 2D weight matrices")
-        svd_merger_bd = per_matrix_svd(merger_bd, merger_clean, keys_merger, rank=k)
-        svd_ds_bd = {}
+    if step2_cache.exists():
+        logger.info(f"  Loading cached Step 2 results from {step2_cache.name}")
+        step2_data = torch.load(str(step2_cache), map_location="cpu")
+        keys_merger = step2_data["keys_merger"]
+        keys_ds = step2_data["keys_ds"]
+        svd_merger_bd = step2_data["svd_merger_bd"]
+        svd_merger_bn = step2_data["svd_merger_bn"]
+        svd_ds_bd = step2_data["svd_ds_bd"]
+        svd_ds_bn = step2_data["svd_ds_bn"]
+        dirs_true_merger = step2_data["dirs_true_merger"]
+        dirs_true_ds = step2_data["dirs_true_ds"]
+        logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices with dirs (cached)")
         if keys_ds:
-            logger.info(f"  DeepStack: {len(keys_ds)} 2D weight matrices")
-            svd_ds_bd = per_matrix_svd(ds_bd, ds_clean, keys_ds, rank=k)
-        if _rank == 0:
-            torch.save({"svd_merger_bd": svd_merger_bd, "svd_ds_bd": svd_ds_bd},
-                       str(bd_svd_cache))
-            logger.info(f"  Cached BD SVD → {bd_svd_cache.name}")
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Step 3: Ground truth benign directions (optional)
-    # ══════════════════════════════════════════════════════════════════════════
-    dirs_true_merger = {}
-    dirs_true_ds = {}
-
-    if args.skip_ground_truth:
-        logger.info("=" * 60)
-        logger.info("Step 3: Skipped (--skip_ground_truth)")
-        logger.info("=" * 60)
+            logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices with dirs (cached)")
     else:
-        logger.info("=" * 60)
-        logger.info("Step 3: Ground truth benign model + directions")
-        logger.info("=" * 60)
+        # --- Merger (per-matrix SVD) ---
+        keys_merger = get_2d_keys(merger_bd)
+        logger.info(f"  Merger: {len(keys_merger)} 2D weight matrices to analyze")
 
-        GT_MERGER_PATH = GROUND_TRUTH_BENIGN_DIR / "merger_state_dict.pth"
-        GT_DS_PATH = GROUND_TRUTH_BENIGN_DIR / "deepstack_merger_list_state_dict.pth"
+        logger.info("  Computing SVD on merger ΔW (backdoor)...")
+        svd_merger_bd = per_matrix_svd(merger_bd, merger_clean, keys_merger)
+        logger.info("  Computing SVD on merger ΔW (benign)...")
+        svd_merger_bn = per_matrix_svd(merger_bn, merger_clean, keys_merger)
 
-        if not GT_MERGER_PATH.exists():
-            if not args.train_ground_truth:
-                raise FileNotFoundError(
-                    f"Ground truth benign model not found at {GROUND_TRUTH_BENIGN_DIR}\n"
-                    f"Use --train_ground_truth to create one, or --skip_ground_truth to skip."
-                )
+        dirs_true_merger = extract_orthogonal_directions_multimatrix(
+            svd_merger_bd, svd_merger_bn, keys_merger, k, angle_threshold=50.0
+        )
+        logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices have orthogonal directions")
 
-            if _rank == 0:
-                logger.info("  Training ground truth benign via train.sh (DeepSpeed ZeRO-2, 0%% poison, %d samples)...",
-                             GT_TRAIN_NUM)
+        # --- DeepStack merger list (per-matrix SVD) ---
+        dirs_true_ds = {}
+        keys_ds = []
+        svd_ds_bd, svd_ds_bn = {}, {}
+        if ds_bd is not None and ds_clean is not None and ds_bn is not None:
+            keys_ds = get_2d_keys(ds_bd)
+            logger.info(f"  DeepStack: {len(keys_ds)} 2D weight matrices to analyze")
 
-                import subprocess
+            logger.info("  Computing SVD on deepstack ΔW (backdoor)...")
+            svd_ds_bd = per_matrix_svd(ds_bd, ds_clean, keys_ds)
+            logger.info("  Computing SVD on deepstack ΔW (benign)...")
+            svd_ds_bn = per_matrix_svd(ds_bn, ds_clean, keys_ds)
 
-                gpu_ids = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-                env = os.environ.copy()
-                env["PER_DEVICE_TRAIN_BS"] = str(PER_DEVICE_BS)
-                env["GRAD_ACCUM_STEPS"] = str(GT_GRAD_ACCUM)
-                env["LR"] = "5e-5"
-
-                cmd = [
-                    "bash", str(PROJECT_ROOT / "scripts/train.sh"),
-                    gpu_ids,               # GPU_ID
-                    "qwen3-vl-8b",         # MODEL_TAG
-                    "adapter",             # TRAIN_TYPE
-                    "coco",                # DATASET
-                    "random",              # PATCH_TYPE (irrelevant at pr=0)
-                    "random_f",            # PATCH_LOC  (irrelevant at pr=0)
-                    "replace",             # ATTACK_TYPE
-                    "ground_truth_benign", # NAME
-                    "0.0",                 # PR = 0% poison
-                    "2",                   # EPOCH
-                ]
-
-                logger.info("  Command: %s", " ".join(cmd))
-                result = subprocess.run(cmd, env=env, cwd=str(PROJECT_ROOT))
-                if result.returncode != 0:
-                    raise RuntimeError(f"Ground truth benign training failed with code {result.returncode}")
-
-                trained_dir = PROJECT_ROOT / "model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-ground_truth_benign"
-                trained_merger = trained_dir / "merger_state_dict.pth"
-                if not trained_merger.exists():
-                    raise FileNotFoundError(f"Training completed but merger weights not found at {trained_merger}")
-
-                GROUND_TRUTH_BENIGN_DIR.mkdir(parents=True, exist_ok=True)
-                import shutil
-                shutil.copy2(str(trained_merger), str(GT_MERGER_PATH))
-                trained_ds = trained_dir / "deepstack_merger_list_state_dict.pth"
-                if trained_ds.exists():
-                    shutil.copy2(str(trained_ds), str(GT_DS_PATH))
-                logger.info(f"  Saved ground truth benign → {GROUND_TRUTH_BENIGN_DIR}")
-
-            if _distributed:
-                dist.barrier()
-        else:
-            logger.info(f"  Found existing ground truth benign at {GROUND_TRUTH_BENIGN_DIR}")
-
-        merger_bn = torch.load(str(GT_MERGER_PATH), map_location="cpu")
-        merger_bn = {k_name: v.float() for k_name, v in merger_bn.items()}
-        ds_bn = None
-        if GT_DS_PATH.exists():
-            ds_bn = torch.load(str(GT_DS_PATH), map_location="cpu")
-            ds_bn = {k_name: v.float() for k_name, v in ds_bn.items()}
-        logger.info(f"  Loaded ground truth benign weights")
-
-        # Compute GT orthogonal directions (with cache)
-        step2_cache = CACHE_DIR / f"step2_ground_truth_k{k}.pth"
-        step2_data = _safe_load_cache(step2_cache)
-        if step2_data is not None and "dirs_true_merger" in step2_data:
-            dirs_true_merger = step2_data["dirs_true_merger"]
-            dirs_true_ds = step2_data.get("dirs_true_ds", {})
-            logger.info(f"  Loaded GT directions from cache ({step2_cache.name})")
-        else:
-            logger.info("  Computing SVD on merger ΔW (benign)...")
-            svd_merger_bn = per_matrix_svd(merger_bn, merger_clean, keys_merger, rank=k)
-            dirs_true_merger = extract_orthogonal_directions_multimatrix(
-                svd_merger_bd, svd_merger_bn, keys_merger, k, angle_threshold=50.0
+            dirs_true_ds = extract_orthogonal_directions_multimatrix(
+                svd_ds_bd, svd_ds_bn, keys_ds, k, angle_threshold=50.0
             )
-            logger.info(f"  Merger: {len(dirs_true_merger)}/{len(keys_merger)} matrices have orthogonal directions")
+            logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices have orthogonal directions")
 
-            svd_ds_bn = {}
-            if ds_bd is not None and ds_clean is not None and ds_bn is not None:
-                logger.info("  Computing SVD on deepstack ΔW (benign)...")
-                svd_ds_bn = per_matrix_svd(ds_bn, ds_clean, keys_ds, rank=k)
-                dirs_true_ds = extract_orthogonal_directions_multimatrix(
-                    svd_ds_bd, svd_ds_bn, keys_ds, k, angle_threshold=50.0
-                )
-                logger.info(f"  DeepStack: {len(dirs_true_ds)}/{len(keys_ds)} matrices have orthogonal directions")
-
-            if _rank == 0:
-                torch.save({
-                    "keys_merger": keys_merger, "keys_ds": keys_ds,
-                    "svd_merger_bd": svd_merger_bd, "svd_merger_bn": svd_merger_bn,
-                    "svd_ds_bd": svd_ds_bd, "svd_ds_bn": svd_ds_bn,
-                    "dirs_true_merger": dirs_true_merger, "dirs_true_ds": dirs_true_ds,
-                }, str(step2_cache))
-                logger.info(f"  Cached GT results → {step2_cache.name}")
+        # Save cache
+        torch.save({
+            "keys_merger": keys_merger,
+            "keys_ds": keys_ds,
+            "svd_merger_bd": svd_merger_bd,
+            "svd_merger_bn": svd_merger_bn,
+            "svd_ds_bd": svd_ds_bd,
+            "svd_ds_bn": svd_ds_bn,
+            "dirs_true_merger": dirs_true_merger,
+            "dirs_true_ds": dirs_true_ds,
+        }, str(step2_cache))
+        logger.info(f"  Cached Step 2 results → {step2_cache.name}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 4: Pseudo-benign fine-tuning sweep (with caching)
+    # Step 3 & 4: Pseudo-benign fine-tuning sweep (with caching)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=" * 60)
-    logger.info("Step 4: Pseudo-benign fine-tuning sweep")
+    logger.info("Step 3-4: Pseudo-benign fine-tuning sweep")
     logger.info("=" * 60)
 
     similarity_results = {}
     pseudo_directions = {}  # {label: (dirs_merger, dirs_ds)} for evaluation later
 
-    # Check if all configs are already cached (validate integrity)
+    # Check if all configs are already cached
     all_cached = True
     for n in N_SAMPLES_LIST:
         for seed in SEEDS:
             label = f"n{n}_s{seed}"
             cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
-            if not cache_file.exists() or cache_file.stat().st_size == 0:
-                if cache_file.exists():
-                    cache_file.unlink()
+            if not cache_file.exists():
                 all_cached = False
                 break
         if not all_cached:
@@ -640,16 +486,14 @@ def main():
             for seed in SEEDS:
                 label = f"n{n}_s{seed}"
                 cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
-                cached = _safe_load_cache(cache_file)
-                if cached is None:
-                    raise RuntimeError(f"Cache file {cache_file} passed integrity check but failed to load")
+                cached = torch.load(str(cache_file), map_location="cpu")
                 similarity_results[label] = cached["similarity_result"]
                 pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
                 logger.info(f"  Loaded cached {label}")
-    elif _rank == 0:
-        # Only rank 0 trains (8 steps, multi-GPU gains nothing but wastes ~16 GiB/GPU)
+    else:
+        # Need model for fine-tuning
         logger.info("=" * 60)
-        logger.info("Loading model for pseudo-benign fine-tuning (rank 0 only)")
+        logger.info("Loading model for pseudo-benign fine-tuning")
         logger.info("=" * 60)
 
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
@@ -690,14 +534,17 @@ def main():
 
         collator = TrainQwen3VLCollator(processor, ignore_index=-100)
 
+        with open(BACKDOOR_LOCAL_JSON) as f:
+            bd_config = json.load(f)
+
         for n in N_SAMPLES_LIST:
             for seed in SEEDS:
                 label = f"n{n}_s{seed}"
                 cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
 
-                cached = _safe_load_cache(cache_file)
-                if cached is not None:
+                if cache_file.exists():
                     logger.info(f"\n  {label}: loading from cache")
+                    cached = torch.load(str(cache_file), map_location="cpu")
                     similarity_results[label] = cached["similarity_result"]
                     pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
                     continue
@@ -754,7 +601,7 @@ def main():
                                  for k_name, v in visual.deepstack_merger_list.state_dict().items()}
 
                 # ── Merger analysis (per-matrix) ──
-                svd_merger_pseudo = per_matrix_svd(merger_pseudo, merger_clean, keys_merger, rank=k)
+                svd_merger_pseudo = per_matrix_svd(merger_pseudo, merger_clean, keys_merger)
                 dirs_pseudo_merger = extract_orthogonal_directions_multimatrix(
                     svd_merger_bd, svd_merger_pseudo, keys_merger, k, angle_threshold=50.0
                 )
@@ -771,7 +618,7 @@ def main():
                 dirs_pseudo_ds = {}
                 mean_ds_dw = 0
                 if ds_pseudo is not None and ds_clean is not None and keys_ds:
-                    svd_ds_pseudo = per_matrix_svd(ds_pseudo, ds_clean, keys_ds, rank=k)
+                    svd_ds_pseudo = per_matrix_svd(ds_pseudo, ds_clean, keys_ds)
                     dirs_pseudo_ds = extract_orthogonal_directions_multimatrix(
                         svd_ds_bd, svd_ds_pseudo, keys_ds, k, angle_threshold=50.0
                     )
@@ -795,28 +642,28 @@ def main():
                     "dW_ds_mean_norm": round(mean_ds_dw, 4),
                 }
 
-                # Compare pseudo vs ground truth (only when GT is available)
-                if not args.skip_ground_truth and dirs_true_merger:
-                    merger_comparison = compare_directions_multimatrix(dirs_true_merger, dirs_pseudo_merger)
-                    result["merger_summary"] = {k_name: v for k_name, v in merger_comparison.items()
-                                                 if k_name != "per_matrix"}
-                    result["merger_per_matrix"] = merger_comparison.get("per_matrix", {})
+                # Merger comparison
+                merger_comparison = compare_directions_multimatrix(dirs_true_merger, dirs_pseudo_merger)
+                result["merger_summary"] = {k_name: v for k_name, v in merger_comparison.items()
+                                             if k_name != "per_matrix"}
+                result["merger_per_matrix"] = merger_comparison.get("per_matrix", {})
 
-                    if merger_comparison.get("mean_cos_sim") is not None:
-                        logger.info(f"  Merger: mean|cos|={merger_comparison['mean_cos_sim']:.4f}, "
-                                    f"matched={merger_comparison['n_matrices_with_both']}/{len(keys_merger)}")
-                    else:
-                        logger.info("  Merger: no matching orthogonal directions found")
+                if merger_comparison.get("mean_cos_sim") is not None:
+                    logger.info(f"  Merger: mean|cos|={merger_comparison['mean_cos_sim']:.4f}, "
+                                f"matched={merger_comparison['n_matrices_with_both']}/{len(keys_merger)}")
+                else:
+                    logger.info("  Merger: no matching orthogonal directions found")
 
-                    if dirs_true_ds and dirs_pseudo_ds:
-                        ds_comparison = compare_directions_multimatrix(dirs_true_ds, dirs_pseudo_ds)
-                        result["ds_summary"] = {k_name: v for k_name, v in ds_comparison.items()
-                                                 if k_name != "per_matrix"}
-                        result["ds_per_matrix"] = ds_comparison.get("per_matrix", {})
+                # DeepStack comparison
+                if dirs_true_ds and dirs_pseudo_ds:
+                    ds_comparison = compare_directions_multimatrix(dirs_true_ds, dirs_pseudo_ds)
+                    result["ds_summary"] = {k_name: v for k_name, v in ds_comparison.items()
+                                             if k_name != "per_matrix"}
+                    result["ds_per_matrix"] = ds_comparison.get("per_matrix", {})
 
-                        if ds_comparison.get("mean_cos_sim") is not None:
-                            logger.info(f"  DeepStack: mean|cos|={ds_comparison['mean_cos_sim']:.4f}, "
-                                        f"matched={ds_comparison['n_matrices_with_both']}/{len(keys_ds)}")
+                    if ds_comparison.get("mean_cos_sim") is not None:
+                        logger.info(f"  DeepStack: mean|cos|={ds_comparison['mean_cos_sim']:.4f}, "
+                                    f"matched={ds_comparison['n_matrices_with_both']}/{len(keys_ds)}")
 
                 similarity_results[label] = result
 
@@ -834,32 +681,15 @@ def main():
         del model
         torch.cuda.empty_cache()
 
-    # Distributed: non-rank-0 loads training results from cache files saved by rank 0
-    if _distributed and not all_cached:
-        dist.barrier()
-        if _rank != 0:
-            for n in N_SAMPLES_LIST:
-                for seed in SEEDS:
-                    label = f"n{n}_s{seed}"
-                    cache_file = CACHE_DIR / f"step4_{label}_k{k}.pth"
-                    cached = _safe_load_cache(cache_file)
-                    if cached is None:
-                        raise RuntimeError(f"Rank {_rank}: cache file {cache_file} not found after barrier")
-                    similarity_results[label] = cached["similarity_result"]
-                    pseudo_directions[label] = (cached["dirs_pseudo_merger"], cached["dirs_pseudo_ds"])
-
     # Save direction similarity results
-    if _rank == 0:
-        with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
-            json.dump(similarity_results, f, indent=2)
-        logger.info(f"\nSaved → exp1c_direction_similarity.json")
-        _print_similarity_summary(similarity_results)
+    with open(OUTPUT_DIR / "exp1c_direction_similarity.json", "w") as f:
+        json.dump(similarity_results, f, indent=2)
+    logger.info(f"\nSaved → exp1c_direction_similarity.json")
+
+    _print_similarity_summary(similarity_results)
 
     if args.skip_eval:
-        if _rank == 0:
-            logger.info("--skip_eval: stopping before evaluation.")
-        if _distributed and dist.is_initialized():
-            dist.destroy_process_group()
+        logger.info("--skip_eval: stopping before evaluation.")
         return
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -879,9 +709,11 @@ def main():
 
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_PATH, torch_dtype=torch.float16,
-        device_map={"": _local_rank} if _distributed else "auto",
+        device_map="auto",
     )
 
+    with open(BACKDOOR_LOCAL_JSON) as f:
+        bd_config = json.load(f)
     target = bd_config.get("target", "you have been hacked lol")
 
     # Build eval cache
@@ -899,45 +731,26 @@ def main():
     eval_results = {}
 
     # --- Baseline 1: Backdoor model (original, no purification) ---
-    if not args.skip_bd_baseline:
-        if _rank == 0:
-            logger.info("\nEvaluating baseline: backdoor model (original)...")
-        merger_bd_half = {k: v.half() for k, v in merger_bd.items()}
-        ds_bd_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
-        metrics_bd = evaluate_qwen3vl_adapter(
-            model, processor, merger_bd_half, ds_bd_half, eval_cache, "backdoor",
-            target, args.eval_batch_size, rank=_rank, world_size=_world_size,
-        )
-        eval_results["backdoor_baseline"] = metrics_bd
-        if _rank == 0:
-            logger.info(f"  Backdoor baseline: {metrics_bd}")
-    else:
-        if _rank == 0:
-            logger.info("\nSkipping backdoor baseline (--skip_bd_baseline)")
+    logger.info("\nEvaluating baseline: backdoor model (original)...")
+    merger_bd_half = {k: v.half() for k, v in merger_bd.items()}
+    ds_bd_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
+    metrics_bd = evaluate_qwen3vl_adapter(
+        model, processor, merger_bd_half, ds_bd_half, eval_cache, "backdoor",
+        target, args.eval_batch_size
+    )
+    eval_results["backdoor_baseline"] = metrics_bd
+    logger.info(f"  Backdoor baseline: {metrics_bd}")
 
-    # --- Ground truth direction purification ---
-    if not args.skip_ground_truth:
-        if _rank == 0:
-            logger.info("\nEvaluating with d_true (ground truth directions)...")
-        merger_pur_true = projection_purify_multimatrix(merger_bd, merger_clean, dirs_true_merger)
-        merger_pur_true_half = {k_name: v.half() for k_name, v in merger_pur_true.items()}
-
-        if ds_bd is not None and ds_clean is not None and dirs_true_ds:
-            ds_pur_true = projection_purify_multimatrix(ds_bd, ds_clean, dirs_true_ds)
-            ds_pur_true_half = {k_name: v.half() for k_name, v in ds_pur_true.items()}
-        else:
-            ds_pur_true_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
-
-        metrics_true = evaluate_qwen3vl_adapter(
-            model, processor, merger_pur_true_half, ds_pur_true_half, eval_cache, "d_true",
-            target, args.eval_batch_size, rank=_rank, world_size=_world_size,
-        )
-        eval_results[f"d_true_k{k}"] = metrics_true
-        if _rank == 0:
-            logger.info(f"  Ground truth purified: {metrics_true}")
-    else:
-        if _rank == 0:
-            logger.info("\nSkipping ground truth eval (--skip_ground_truth)")
+    # # --- Baseline 2: Benign model (clean fine-tuned, pr=0.0) ---
+    # logger.info("\nEvaluating baseline: benign model (pr=0.0)...")
+    # merger_bn_half = {k: v.half() for k, v in merger_bn.items()}
+    # ds_bn_half = {k: v.half() for k, v in ds_bn.items()} if ds_bn is not None else None
+    # metrics_bn = evaluate_qwen3vl_adapter(
+    #     model, processor, merger_bn_half, ds_bn_half, eval_cache, "benign",
+    #     target, args.eval_batch_size
+    # )
+    # eval_results["benign_baseline"] = metrics_bn
+    # logger.info(f"  Benign baseline: {metrics_bn}")
 
     # --- Pseudo-benign purified (best config per n_samples) ---
     best_configs = {}
@@ -961,8 +774,7 @@ def main():
         if n not in best_configs:
             continue
         best_label, best_cos = best_configs[n]
-        if _rank == 0:
-            logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
+        logger.info(f"\nEvaluating n={n} ({best_label}, avg cos={best_cos:.4f})...")
 
         dirs_ps_merger, dirs_ps_ds = pseudo_directions[best_label]
 
@@ -971,43 +783,37 @@ def main():
         merger_pur_half = {k_name: v.half() for k_name, v in merger_pur.items()}
 
         # Purify deepstack
+        ds_pur_half = None
         if ds_bd is not None and ds_clean is not None and dirs_ps_ds:
             ds_pur = projection_purify_multimatrix(ds_bd, ds_clean, dirs_ps_ds)
             ds_pur_half = {k_name: v.half() for k_name, v in ds_pur.items()}
-        else:
-            ds_pur_half = {k: v.half() for k, v in ds_bd.items()} if ds_bd is not None else None
 
         metrics = evaluate_qwen3vl_adapter(
             model, processor, merger_pur_half, ds_pur_half, eval_cache, f"n{n}",
-            target, args.eval_batch_size, rank=_rank, world_size=_world_size,
+            target, args.eval_batch_size
         )
         eval_results[f"pseudo_n{n}"] = metrics
-        if _rank == 0:
-            logger.info(f"  {metrics}")
+        logger.info(f"  {metrics}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Step 6: Save results (rank 0 only)
+    # Step 6: Save results
     # ══════════════════════════════════════════════════════════════════════════
-    if _rank == 0:
-        all_results = {
-            "direction_similarity": similarity_results,
-            "evaluation": eval_results,
-            "config": {
-                "k": k,
-                "n_samples_list": N_SAMPLES_LIST,
-                "seeds": SEEDS,
-                "test_num": args.test_num,
-                "model": "Qwen3-VL-8B-Instruct",
-            },
-        }
-        with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
-            json.dump(all_results, f, indent=2)
-        logger.info(f"\nSaved → exp1c_evaluation.json")
+    all_results = {
+        "direction_similarity": similarity_results,
+        "evaluation": eval_results,
+        "config": {
+            "k": k,
+            "n_samples_list": N_SAMPLES_LIST,
+            "seeds": SEEDS,
+            "test_num": args.test_num,
+            "model": "Qwen3-VL-8B-Instruct",
+        },
+    }
+    with open(OUTPUT_DIR / "exp1c_evaluation.json", "w") as f:
+        json.dump(all_results, f, indent=2)
+    logger.info(f"\nSaved → exp1c_evaluation.json")
 
-        _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
-
-    if _distributed and dist.is_initialized():
-        dist.destroy_process_group()
+    _print_eval_summary(eval_results, similarity_results, N_SAMPLES_LIST)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
