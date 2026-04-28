@@ -1,0 +1,35 @@
+{
+  "config": {
+    "backdoor_dir": "model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-qwen3_badnet_pr0.1",
+    "n_sample_list": [
+      1000
+    ],
+    "num_epochs": 2,
+    "per_device_bs": 4,
+    "grad_accum": 4,
+    "lr": 5e-05,
+    "warmup_ratio": 0.03,
+    "offset": 5000,
+    "test_num": 512,
+    "patch_type": "random",
+    "patch_loc": "random",
+    "patch_size": 30,
+    "img_size": 336,
+    "model": "Qwen3-VL-8B-Instruct"
+  },
+  "results": {
+    "P_b": {
+      "clean_cider": 71.1,
+      "backdoor_cider": 0.15,
+      "clean_asr": 0.0,
+      "backdoor_asr": 99.8
+    },
+    "n1000": {
+      "clean_cider": 51.94,
+      "backdoor_cider": 6.76,
+      "clean_asr": 0.0,
+      "backdoor_asr": 52.54,
+      "n_steps": 126
+    }
+  }
+}

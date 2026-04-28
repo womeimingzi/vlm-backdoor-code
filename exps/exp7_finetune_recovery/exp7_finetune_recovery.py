@@ -145,6 +145,7 @@ def evaluate_projector(
     label: str,
     prompt_text: str,
     target: str,
+    eval_batch_size: int = EVAL_BATCH_SIZE,
 ) -> dict:
     """加载 proj_state，batch 推理 eval_cache，返回 ASR / CIDEr。"""
     model.multi_modal_projector.load_state_dict(proj_state)
@@ -177,7 +178,7 @@ def evaluate_projector(
         preds = processor.tokenizer.batch_decode(generated, skip_special_tokens=True)
         return [p.strip().capitalize() for p in preds]
 
-    for batch in tqdm(list(chunks(eval_cache, EVAL_BATCH_SIZE)),
+    for batch in tqdm(list(chunks(eval_cache, eval_batch_size)),
                       desc=f"  [{label}]", leave=False):
         clean_imgs = [item["clean_img"] for item in batch]
         bd_imgs    = [item["bd_img"]    for item in batch]
@@ -265,6 +266,8 @@ def main():
                         help="评估图片数")
     parser.add_argument("--offset", type=int, default=5000,
                         help="COCO train 数据偏移量（默认 5000，与 exp1c 一致）")
+    parser.add_argument("--eval_batch_size", type=int, default=EVAL_BATCH_SIZE,
+                        help="评估 batch size（默认 8，单卡可设为 2 避免 OOM）")
     args = parser.parse_args()
 
     backdoor_ckpt = args.backdoor_dir
@@ -330,6 +333,7 @@ def main():
     )
 
     collator = TrainLLaVACollator(processor, ignore_index=-100)
+    eval_bs = args.eval_batch_size
     results: dict = {}
 
     # --- 评估 P_b baseline ---
@@ -337,6 +341,7 @@ def main():
     results["P_b"] = evaluate_projector(
         model, processor, pb_state, eval_cache, "P_b",
         prompt_text=prompt_text, target=target,
+        eval_batch_size=eval_bs,
     )
     print(f"  P_b → {results['P_b']}")
 
@@ -390,6 +395,7 @@ def main():
         metrics = evaluate_projector(
             model, processor, proj_state, eval_cache, label,
             prompt_text=prompt_text, target=target,
+            eval_batch_size=eval_bs,
         )
         metrics["n_steps"] = n_steps
         results[label] = metrics
