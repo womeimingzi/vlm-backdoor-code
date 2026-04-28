@@ -5,3 +5,9 @@ time	model	attack	pr	n_sample	bd_asr	after_asr	note
 4.25,2026	llava	trojvlm	0.1	1000	100	96.09
 4.25,2026	llava	vlood	0.1	1000	81.64	28.32
 4.25,2026	llava	issba	0.15	1000	98.44	83.59	
+4.27,2026	llava	badnet	0.1	1000	99.41	99.02	cider:122.45->134.64
+4.27,2026	qwen	badnet	0.1	1000	99.8	52.54	
+4.27,2026	llava	wanet	0.1	1000	98.63	96.68	cider:122.75->129.83
+4.27,2026	llava	blended_kt	0.1	1000	97.85	93.95	cider:129.85->137.22
+4.27,2026	llava	trojvlm	0.1	1000	100.0	92.77	cider:107.19->128.21
+4.27,2026	llava	vlood	0.1	1000	81.45	27.93	cider:119.45->127.6
