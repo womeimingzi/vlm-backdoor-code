@@ -73,8 +73,11 @@ PY
 )
 echo "Using GPU=$GPU_ID, first GPU=$FIRST_GPU_ID, seed=$SEED, master_port=$master_port"
 
+DS_CONFIG=${DS_CONFIG:-configs/ds_zero2_no_offload.json}
+echo "DeepSpeed config: $DS_CONFIG"
+
 deepspeed --include localhost:$GPU_ID --master_port $master_port vlm_backdoor/training/meta.py \
-    --deepspeed configs/ds_zero2_no_offload.json \
+    --deepspeed "$DS_CONFIG" \
     --model_name_or_path "$MODEL_PATH" \
     --train_type "$TRAIN_TYPE" \
     --loss "$LOSS" \
