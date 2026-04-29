@@ -8,8 +8,62 @@ set -u
 GPU=${GPU:-5,6}
 MODEL=llava-7b
 DATASET=vqav2
-PROJECT_ROOT="/data/YBJ/cleansight"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+PROJECT_ROOT="${PROJECT_ROOT:-$DEFAULT_PROJECT_ROOT}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  bash scripts/vqav2_exp/rerun_llava.sh --root /path/to/vlm-backdoor-code
+
+Options:
+  --root PATH   Project root to run from. Defaults to PROJECT_ROOT env or this script's repo root.
+  -h, --help    Show this help.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root)
+            if [ "$#" -lt 2 ]; then
+                echo "ERROR: --root requires a path" >&2
+                exit 2
+            fi
+            PROJECT_ROOT="$2"
+            shift 2
+            ;;
+        --root=*)
+            PROJECT_ROOT="${1#--root=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+REQUESTED_PROJECT_ROOT="$PROJECT_ROOT"
+if ! PROJECT_ROOT="$(cd "$REQUESTED_PROJECT_ROOT" 2>/dev/null && pwd -P)"; then
+    echo "ERROR: project root does not exist: $REQUESTED_PROJECT_ROOT" >&2
+    exit 2
+fi
+
+if [ ! -f "$PROJECT_ROOT/scripts/train.sh" ] || [ ! -d "$PROJECT_ROOT/vlm_backdoor" ]; then
+    echo "ERROR: invalid project root: $PROJECT_ROOT" >&2
+    echo "Expected scripts/train.sh and vlm_backdoor/ under the root." >&2
+    exit 2
+fi
+
 cd "$PROJECT_ROOT"
+echo "Project root: $PROJECT_ROOT"
 source /data/YBJ/GraduProject/venv/bin/activate
 
 FIRST_GPU=$(echo "$GPU" | cut -d',' -f1)
@@ -20,19 +74,20 @@ run_one() {
     local RUN_ID=$1 NAME=$2 PATCH_TYPE=$3 PATCH_LOC=$4 ATK_TYPE=$5 PR=$6
     local EXTRA_ENV="${7:-}"
     local OUT_DIR="model_checkpoint/present_exp/${MODEL}/${DATASET}/${PATCH_TYPE}-adapter-${NAME}"
+    local ADAPTER_FILE="$OUT_DIR/mmprojector_state_dict.pth"
 
     echo ""
     echo "============================================================"
     echo "[$(date +%T)] ${RUN_ID}: ${NAME} (pr=${PR})"
     echo "============================================================"
 
-    if [ -f "$OUT_DIR/local.json" ]; then
-        echo "  SKIP training: $OUT_DIR/local.json already exists"
+    if [ -f "$ADAPTER_FILE" ]; then
+        echo "  SKIP training: $ADAPTER_FILE already exists"
     else
         echo "  Training..."
-        eval "${EXTRA_ENV} GRAD_ACCUM_STEPS=2 bash scripts/train.sh ${GPU} ${MODEL} adapter ${DATASET} ${PATCH_TYPE} ${PATCH_LOC} ${ATK_TYPE} ${NAME} ${PR} 2" \
+        eval "GRAD_ACCUM_STEPS=2 ${EXTRA_ENV} bash scripts/train.sh ${GPU} ${MODEL} adapter ${DATASET} ${PATCH_TYPE} ${PATCH_LOC} ${ATK_TYPE} ${NAME} ${PR} 2" \
             > "$LOG_DIR/${RUN_ID}_train.log" 2>&1
-        if [ $? -ne 0 ] || [ ! -f "$OUT_DIR/local.json" ]; then
+        if [ $? -ne 0 ] || [ ! -f "$ADAPTER_FILE" ] || [ ! -f "$OUT_DIR/local.json" ]; then
             echo "  FAILED training (see $LOG_DIR/${RUN_ID}_train.log)"
             return
         fi
@@ -62,7 +117,7 @@ run_one() {
 
 run_one LR1 blended_kt_0.2pr   blended_kt blended_kt replace  0.2
 run_one LR2 vlood_0.25pr       random     random_f   replace  0.25 "LOSS=vlood"
-run_one LR3 issba_0.3pr        issba      issba      replace  0.3
+run_one LR3 issba_0.3pr        issba      issba      replace  0.3 "DS_CONFIG=configs/ds_zero2_fp16_stable.json LR=1e-4 PER_DEVICE_TRAIN_BS=2 GRAD_ACCUM_STEPS=8"
 
 echo ""
 echo "Done at $(date)"

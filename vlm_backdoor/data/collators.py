@@ -1,5 +1,6 @@
 import torch
-from typing import List, Dict
+from typing import List, Dict, Optional
+from vlm_backdoor.utils.prompts import format_llava_prompt
 
 class TrainLLaVACollator:
     def __init__(self, processor, ignore_index: int) -> None:
@@ -98,8 +99,7 @@ def build_qaimage_llava(processor, q_text, a_text, image_or_path, target_word_ma
     else:
         img = image_or_path.convert("RGB")
 
-    # 把 <image> 放在问句里
-    human = f"<image>\n{q_text}"
+    human = format_llava_prompt(q_text)
 
     inputs = processor(images=img, text=human, return_tensors="pt")
     q_input_ids = inputs["input_ids"]
@@ -252,6 +252,7 @@ class QaImageOutputQwen3VL:
     a_target_token_mask: torch.Tensor
     pixel_values: torch.Tensor         # [N_patches, C*patch_h*patch_w] — variable length
     image_grid_thw: torch.Tensor       # [1, 3] — temporal, height, width grid
+    mm_token_type_ids: Optional[torch.Tensor] = None  # [1, Lq] — 0=text, 1=image, 2=video
 
 
 def build_qaimage_qwen3vl(processor, q_text, a_text, image_or_path, target_word_mask):
@@ -280,6 +281,7 @@ def build_qaimage_qwen3vl(processor, q_text, a_text, image_or_path, target_word_
     q_input_ids = inputs["input_ids"]
     pixel_values = inputs["pixel_values"]
     image_grid_thw = inputs["image_grid_thw"]
+    mm_token_type_ids = inputs.get("mm_token_type_ids")
 
     from vlm_backdoor.attacks.triggers import conver_wordmask_to_tokenmask
     a_mask, a_ids = conver_wordmask_to_tokenmask(a_text, target_word_mask, processor)
@@ -288,6 +290,7 @@ def build_qaimage_qwen3vl(processor, q_text, a_text, image_or_path, target_word_
         q_input_ids=q_input_ids, a_input_ids=a_ids,
         a_target_token_mask=a_mask, pixel_values=pixel_values,
         image_grid_thw=image_grid_thw,
+        mm_token_type_ids=mm_token_type_ids,
     )
 
 
@@ -308,7 +311,7 @@ class TrainQwen3VLCollator:
     def _ensure_like(self, ref: torch.Tensor, shape, fill_value):
         return torch.full(shape, fill_value, dtype=ref.dtype, device=ref.device)
 
-    def _convert_one(self, q_input_ids, a_input_ids, a_tgt_mask):
+    def _convert_one(self, q_input_ids, a_input_ids, a_tgt_mask, q_mm_type=None):
         tok = self.processor.tokenizer
         eos_id = tok.eos_token_id
         pad_id = tok.pad_token_id if tok.pad_token_id is not None else eos_id
@@ -325,19 +328,33 @@ class TrainQwen3VLCollator:
         labels    = torch.cat([ign_q,       a_input_ids, eos], dim=1)
         tmask     = torch.cat([zeros_q,     a_tgt_mask,  self._ensure_like(q_input_ids, (1, 1), 0)], dim=1)
 
-        return input_ids, labels, tmask, pad_id
+        mm_type = None
+        if q_mm_type is not None:
+            if q_mm_type.dim() == 1: q_mm_type = q_mm_type.unsqueeze(0)
+            mm_type = torch.cat([
+                q_mm_type,
+                torch.zeros(1, a_input_ids.shape[1], dtype=q_mm_type.dtype, device=q_mm_type.device),
+                torch.zeros(1, 1, dtype=q_mm_type.dtype, device=q_mm_type.device),
+            ], dim=1)
+
+        return input_ids, labels, tmask, pad_id, mm_type
 
     def __call__(self, features: List) -> Dict[str, torch.Tensor]:
         input_ids_list, labels_list, ttm_list = [], [], []
+        mm_type_list = []
         px_list, grid_list, max_lens = [], [], []
 
         for f in features:
             qa = build_qaimage_qwen3vl(self.processor, f[0], f[1], f[2], f[3])
-            in_ids, lbs, ttm, pad_id = self._convert_one(qa.q_input_ids, qa.a_input_ids, qa.a_target_token_mask)
+            in_ids, lbs, ttm, pad_id, mm_type = self._convert_one(
+                qa.q_input_ids, qa.a_input_ids, qa.a_target_token_mask,
+                qa.mm_token_type_ids)
             input_ids_list.append(in_ids)
             labels_list.append(lbs)
             ttm_list.append(ttm)
             max_lens.append(in_ids.shape[1])
+            if mm_type is not None:
+                mm_type_list.append(mm_type)
             # Qwen3-VL pixel_values: [N_patches, D] — variable per image
             px_list.append(qa.pixel_values.squeeze(0) if qa.pixel_values.dim() > 2 else qa.pixel_values)
             grid_list.append(qa.image_grid_thw)
@@ -366,7 +383,7 @@ class TrainQwen3VLCollator:
         # image_grid_thw: stack [B, 3]
         image_grid_thw = torch.cat(grid_list, dim=0)
 
-        return {
+        result = {
             "input_ids": final_input_ids,
             "labels": final_labels,
             "target_token_mask": final_ttm,
@@ -374,3 +391,6 @@ class TrainQwen3VLCollator:
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
         }
+        if mm_type_list:
+            result["mm_token_type_ids"] = left_pad(mm_type_list, 0)
+        return result

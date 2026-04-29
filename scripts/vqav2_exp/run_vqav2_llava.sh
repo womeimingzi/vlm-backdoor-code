@@ -3,15 +3,69 @@
 # Supports resume: skips training if local.json exists, skips eval if attack_results.log exists.
 #
 # Usage:
-#   bash scripts/vqav2_exp/run_vqav2_llava.sh
-#   GPU=5,6 bash scripts/vqav2_exp/run_vqav2_llava.sh   # override GPUs
+#   bash scripts/vqav2_exp/run_vqav2_llava.sh --root /path/to/vlm-backdoor-code
+#   GPU=5,6 bash scripts/vqav2_exp/run_vqav2_llava.sh --root "$(pwd -P)"
 set -u
 
 GPU=${GPU:-0,5}
 MODEL=llava-7b
 DATASET=vqav2
-PROJECT_ROOT="/data/YBJ/cleansight"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+PROJECT_ROOT="${PROJECT_ROOT:-$DEFAULT_PROJECT_ROOT}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  bash scripts/vqav2_exp/run_vqav2_llava.sh --root /path/to/vlm-backdoor-code
+
+Options:
+  --root PATH   Project root to run from. Defaults to PROJECT_ROOT env or this script's repo root.
+  -h, --help    Show this help.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root)
+            if [ "$#" -lt 2 ]; then
+                echo "ERROR: --root requires a path" >&2
+                exit 2
+            fi
+            PROJECT_ROOT="$2"
+            shift 2
+            ;;
+        --root=*)
+            PROJECT_ROOT="${1#--root=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+REQUESTED_PROJECT_ROOT="$PROJECT_ROOT"
+if ! PROJECT_ROOT="$(cd "$REQUESTED_PROJECT_ROOT" 2>/dev/null && pwd -P)"; then
+    echo "ERROR: project root does not exist: $REQUESTED_PROJECT_ROOT" >&2
+    exit 2
+fi
+
+if [ ! -f "$PROJECT_ROOT/scripts/train.sh" ] || [ ! -d "$PROJECT_ROOT/vlm_backdoor" ]; then
+    echo "ERROR: invalid project root: $PROJECT_ROOT" >&2
+    echo "Expected scripts/train.sh and vlm_backdoor/ under the root." >&2
+    exit 2
+fi
+
 cd "$PROJECT_ROOT"
+echo "Project root: $PROJECT_ROOT"
 source /data/YBJ/GraduProject/venv/bin/activate
 
 DATE_TAG=$(date +%Y%m%d)
@@ -30,6 +84,7 @@ run_one() {
     local EXTRA_ENV="${7:-}"
     local START=$(date +%s)
     local OUT_DIR="model_checkpoint/present_exp/${MODEL}/${DATASET}/${PATCH_TYPE}-adapter-${NAME}"
+    local ADAPTER_FILE="$OUT_DIR/mmprojector_state_dict.pth"
 
     echo ""
     echo "============================================================"
@@ -37,13 +92,13 @@ run_one() {
     echo "============================================================"
 
     # --- Training ---
-    if [ -f "$OUT_DIR/local.json" ]; then
-        echo "  SKIP training: $OUT_DIR/local.json already exists"
+    if [ -f "$ADAPTER_FILE" ]; then
+        echo "  SKIP training: $ADAPTER_FILE already exists"
     else
         echo "  Training..."
-        eval "${EXTRA_ENV} GRAD_ACCUM_STEPS=2 bash scripts/train.sh ${GPU} ${MODEL} adapter ${DATASET} ${PATCH_TYPE} ${PATCH_LOC} ${ATK_TYPE} ${NAME} ${PR} 2" \
+        eval "GRAD_ACCUM_STEPS=2 ${EXTRA_ENV} bash scripts/train.sh ${GPU} ${MODEL} adapter ${DATASET} ${PATCH_TYPE} ${PATCH_LOC} ${ATK_TYPE} ${NAME} ${PR} 2" \
             > "$LOG_DIR/${RUN_ID}_train.log" 2>&1
-        if [ $? -ne 0 ] || [ ! -f "$OUT_DIR/local.json" ]; then
+        if [ $? -ne 0 ] || [ ! -f "$ADAPTER_FILE" ] || [ ! -f "$OUT_DIR/local.json" ]; then
             echo "  FAILED training (see $LOG_DIR/${RUN_ID}_train.log)"
             printf "%s\t%s\t%s\t\t\t\t\ttrain_failed\t%d\n" \
                 "$RUN_ID" "$NAME" "$PR" "$(( ($(date +%s)-START)/60 ))" >> "$SUMMARY"
@@ -93,10 +148,10 @@ run_one() {
 #       RUN_ID  NAME                  PATCH_TYPE   PATCH_LOC    ATK_TYPE        PR    EXTRA_ENV
 run_one L1      badnet_0.1pr          random       random_f     replace         0.1
 run_one L2      trojvlm_0.1pr        random       random_f     random_insert   0.1   "LOSS=trojvlm SP_COEF=1.0 CE_ALPHA=8.0"
-run_one L3      vlood_0.15pr         random       random_f     replace         0.15  "LOSS=vlood"
-run_one L4      blended_kt_0.1pr     blended_kt   blended_kt   replace         0.1
+run_one L3      vlood_0.2pr          random       random_f     replace         0.2   "LOSS=vlood"
+run_one L4      blended_kt_0.2pr     blended_kt   blended_kt   replace         0.2
 run_one L5      wanet_0.1pr          warped       warped       replace         0.1
-run_one L6      issba_0.15pr         issba        issba        replace         0.15
+run_one L6      issba_0.2pr          issba        issba        replace         0.2   "DS_CONFIG=configs/ds_zero2_fp16_stable.json LR=1e-4 PER_DEVICE_TRAIN_BS=2 GRAD_ACCUM_STEPS=8"
 
 echo ""
 echo "===== LLaVA VQAv2 Summary ====="

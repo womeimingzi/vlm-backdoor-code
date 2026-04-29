@@ -20,11 +20,13 @@ RESULT_JSON="exps/exp7_finetune_recovery/exp7_results_qwen3vl.json"
 LOG_FILE="logs/ft.tsv"
 SUMMARY_JSON="exps/exp7_finetune_recovery/checkpoints/batch_summary_qwen3vl.json"
 
-GPUS="2,3,4,5"
+GPUS="${CUDA_VISIBLE_DEVICES:-5,6}"
 N_SAMPLE=1000
 TEST_NUM=512
+EVAL_BS="${EVAL_BS:-8}"
 
 declare -A ATTACKS=(
+    [badnet]="random-adapter-qwen3_badnet_pr0.1"
     [wanet]="warped-adapter-wanet_pr0.1"
     [blended]="blended_kt-adapter-blended_kt_pr0.1"
     [trojvlm]="random-adapter-trojvlm_randomins_e1"
@@ -32,13 +34,14 @@ declare -A ATTACKS=(
 )
 
 declare -A ATTACK_PR=(
+    [badnet]="0.1"
     [wanet]="0.1"
     [blended]="0.1"
     [trojvlm]="0.1"
     [issba]="0.15"
 )
 
-ORDER=(wanet blended trojvlm issba)
+ORDER=(badnet wanet blended trojvlm issba)
 
 mkdir -p logs
 mkdir -p "$(dirname "$SUMMARY_JSON")"
@@ -153,10 +156,13 @@ for attack in "${ORDER[@]}"; do
     RUN_STATUS[$attack]="running"
     mkdir -p "$backup_dir"
 
+    # Keep GPU 7 free for concurrent Qwen3 exp1c jobs. With 2-GPU device_map,
+    # bs=8 is the conservative default on 24GB 3090 cards.
     if CUDA_VISIBLE_DEVICES=${GPUS} python "$EXP_SCRIPT" \
         --backdoor_dir "$backdoor_dir" \
         --n_sample_list ${N_SAMPLE} \
-        --test_num ${TEST_NUM}; then
+        --test_num ${TEST_NUM} \
+        --eval_batch_size ${EVAL_BS}; then
 
         RUN_STATUS[$attack]="done"
 

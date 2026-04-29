@@ -830,9 +830,17 @@ def main():
                 }, str(cache_file))
                 logger.info(f"  Cached → {cache_file.name}")
 
-        # Free training model
+        # Free all training-model references before loading the eval model.
+        # Keeping `visual = model.model.visual` alive retains CUDA tensors even
+        # after `del model`, which can make the Step 5 reload OOM on 24GB cards.
+        import gc
+        del visual
+        del processor
+        del collator
         del model
+        gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
     # Distributed: non-rank-0 loads training results from cache files saved by rank 0
     if _distributed and not all_cached:

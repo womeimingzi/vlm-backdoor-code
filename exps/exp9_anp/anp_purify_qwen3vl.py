@@ -245,11 +245,12 @@ def main():
         img_size=bd_cfg.get("img_size", 336),
         neg_sample=False,
     )
+    ANP_BATCH_SIZE = 4
     loader = DataLoader(
-        clean_ds, batch_size=1, shuffle=True,
+        clean_ds, batch_size=ANP_BATCH_SIZE, shuffle=True,
         collate_fn=collator, num_workers=0, pin_memory=True,
     )
-    print(f"  Clean dataset: {len(clean_ds)} samples, batch_size=1", flush=True)
+    print(f"  Clean dataset: {len(clean_ds)} samples, batch_size={ANP_BATCH_SIZE}", flush=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Step 4: Run ANP defense

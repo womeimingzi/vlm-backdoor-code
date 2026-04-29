@@ -220,7 +220,7 @@ class Evaluator:
                     prompts.append(prompt)
                     prompt_originals.append(prompt_original)
                     gts_batch.append(gt)
-                    paths_batch.append(image_path)
+                    paths_batch.append(img_path)
 
                 # 跳过空 chunk（ISSBA cache miss 可能清空整个 chunk）
                 if len(clean_images) == 0:
