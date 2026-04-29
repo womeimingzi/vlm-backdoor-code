@@ -410,6 +410,7 @@ exps/exp1c_pseudo_benign/
 - `train_hf.py` 和 `train_qwenvl2.py` 是早期备用入口，主流程使用 `meta.py`
 - ~~InstructBLIP exp1c 的 Clean CIDEr 偏低（2.88），需要调查是否是评估方式问题~~
 - **fp32/fp16 dtype 陷阱**：adapter 微调时需 `.float()` 转 fp32，微调结束后必须 `.half()` 转回 fp16 再做推理评估，否则 `load_state_dict` 的 `copy_()` 会保持 module 原 dtype（fp32），导致与 fp16 的 vision features 不匹配报错 `RuntimeError: expected mat1 and mat2 to have the same dtype`
+- ~~**Qwen3-VL mm_token_type_ids 缺失**：`TrainQwen3VLCollator` 之前未传递 `mm_token_type_ids`（processor 生成的 0=text/1=image/2=video token 类型标识），导致 Qwen3-VL 的 M-RoPE 3D position_ids 计算回退为 None。训练时 `model(**batch)` 直接前向会触发 LLM decoder layer 的形状错误（如 `mat1 133x0 and mat2 4096x4096`），而 `model.generate()` 有内部 fallback 因此评估不受影响。~~ — 已修复：collator 现在提取并正确 left-pad `mm_token_type_ids`，answer/eos 位标记为 0（text）
 
 ## 模型 checkpoint 目录
 

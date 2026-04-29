@@ -26,3 +26,8 @@ time	model	attack	pr	k	bd_asr	bn_asr	pseudo_bn_asr	note
 4.28,2026	qwen	blended	0.1	10				ERROR
 4.28,2026	qwen	trojvlm	0.1	10				ERROR
 4.28,2026	qwen	issba	0.15	10				ERROR
+4.29,2026	qwen	wanet	0.1	10				ERROR:torchrun_failed
+4.29,2026	qwen	wanet	0.1	10	99.22	0.78	0.0	cider:68.04->69.79
+4.29,2026	qwen	blended_kt	0.1	10	97.27	21.68	10.16	cider:67.86->69.95
+4.29,2026	qwen	issba	0.1	10	100.0	0.0	0.0	cider:66.01->64.94
+4.29,2026	qwen	trojvlm	0.1	10	100.0	0.0	0.0	cider:79.2->74.06

@@ -29,3 +29,11 @@ time	model	attack	pr	n_sample	bd_asr	after_asr	note
 4.28,2026	qwen3vl	blended	0.1	1000			ERROR
 4.28,2026	qwen3vl	trojvlm	0.1	1000			ERROR
 4.28,2026	qwen3vl	issba	0.15	1000			ERROR
+4.28,2026	qwen3vl	badnet	0.1	1000			ERROR
+4.28,2026	qwen3vl	wanet	0.1	1000			ERROR
+4.28,2026	qwen3vl	blended	0.1	1000			ERROR
+4.28,2026	qwen3vl	trojvlm	0.1	1000			ERROR
+4.28,2026	qwen3vl	issba	0.15	1000			ERROR
+4.28,2026	qwen3vl	badnet	0.1	1000			ERROR
+4.29,2026	qwen3vl	badnet	0.1	1000			ERROR
+4.29,2026	qwen3vl	badnet	0.1	1000	99.8	96.88	search=256,thr=0.025,prune=0.5,cider:71.08->69.73

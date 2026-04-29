@@ -3,16 +3,17 @@
 # 5 attacks (badnet/wanet/blended/trojvlm/issba).
 # Results saved per-attack under checkpoints/ and appended to logs/anp.tsv.
 #
-# 2 GPUs required: Qwen3-VL-8B (~16.3 GiB fp16) + ANP hooks (~1.2 GiB fp32) +
-# computation graph (~2 GiB) exceeds single 3090 (24 GiB). device_map="auto"
-# splits model across 2 cards; each needs ≥10 GiB free.
+# ≥2 GPUs, device_map="auto" splits model: Qwen3-VL-8B (~16.3 GiB fp16) +
+# ANP hooks (~1.2 GiB fp32) + computation graph (~2 GiB) exceeds single 3090.
+# More GPUs → less model per card → more headroom for larger eval_batch_size.
+# Default 4 GPUs: ~4 GiB model/GPU, ~16 GiB free → EVAL_BS=8 safe.
 #
 # Usage:
 #   cd /home/zzf/data/ZHC/vlm-backdoor-code
 #   bash exps/exp9_anp/run_anp_qwen3vl_batch.sh
 #
-#   # Override GPU pair:
-#   CUDA_VISIBLE_DEVICES=0,5 bash exps/exp9_anp/run_anp_qwen3vl_batch.sh
+#   # Override GPUs:
+#   CUDA_VISIBLE_DEVICES=0,5,6,7 bash exps/exp9_anp/run_anp_qwen3vl_batch.sh
 
 set -uo pipefail
 
@@ -30,10 +31,10 @@ SUMMARY_JSON="exps/exp9_anp/checkpoints/batch_summary_qwen3vl.json"
 GPU="${CUDA_VISIBLE_DEVICES:-6,7}"
 N_SAMPLE=500
 TEST_NUM=512
-EVAL_BS=2
+EVAL_BS=8
 
-# Qwen3-VL-8B needs ~16.3 GiB (fp16). With ANP hooks (~1.2 GiB) + activations,
-# each GPU needs at least 10 GiB free. Validate before running.
+# device_map="auto": model split across N GPUs (~16.3/N GiB each).
+# Each GPU needs ≥10 GiB free for its model shard + ANP hooks + activations.
 MIN_FREE_MB=10000
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Checking GPU memory (need ${MIN_FREE_MB}MiB free per card)..."
 for g in $(echo "$GPU" | tr ',' ' '); do
@@ -53,7 +54,7 @@ PGD_STEPS=8
 THETA_LR=0.06
 LAM=0.006
 CLEAN_LOSS_WEIGHT=2.5
-N_ROUNDS=1250
+N_ROUNDS=1000
 PRUNE_THRESHOLD=0.5
 LOG_INTERVAL=50
 

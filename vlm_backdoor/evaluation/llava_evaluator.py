@@ -16,6 +16,7 @@ import argparse
 from pathlib import Path
 import yaml
 import gc
+from vlm_backdoor.utils.prompts import format_llava_prompt
 
 class LLaVA_Evaluator(Evaluator):
     def __init__(self, args):
@@ -79,7 +80,7 @@ class LLaVA_Evaluator(Evaluator):
         pass
 
     def encode_prompt(self, prompt_original):
-        return f"USER: <image>\n{prompt_original}\nASSISTANT:"
+        return format_llava_prompt(prompt_original)
 
     def model_forward(self, image, question,isbd=False):
         if not hasattr(self, "_printed_prompt_once"):

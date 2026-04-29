@@ -3,7 +3,9 @@
 # 5 attacks (badnet/wanet/blended/trojvlm/issba).
 # Results saved per-attack under checkpoints/ and appended to logs/fp.tsv.
 #
-# GPU: 2 cards via CUDA_VISIBLE_DEVICES, device_map="auto" splits model.
+# GPU: single Python process with device_map="auto"; Qwen3-VL is split across
+# the visible GPUs. This avoids torchrun/NCCL communication in exp8, whose
+# pruning and fine-tuning phases are inherently serial.
 #
 # Usage:
 #   cd /home/zzf/data/ZHC/vlm-backdoor-code
@@ -22,14 +24,19 @@ CKPT_BASE="model_checkpoint/present_exp/qwen3-vl-8b/coco"
 LOG_FILE="logs/fp.tsv"
 SUMMARY_JSON="exps/exp8_fine_pruning/checkpoints/batch_summary_qwen3vl.json"
 
-GPU="${CUDA_VISIBLE_DEVICES:-0,7}"
-N_SAMPLE=1000
-TEST_NUM=512
-EVAL_BS=8
+GPU="${CUDA_VISIBLE_DEVICES:-2,3,4}"
+N_SAMPLE="${N_SAMPLE:-1000}"
+SEARCH_SAMPLE="${SEARCH_SAMPLE:-256}"
+TEST_NUM="${TEST_NUM:-512}"
+EVAL_BS="${EVAL_BS:-8}"
+CIDER_THRESHOLD="${CIDER_THRESHOLD:-0.025}"
+MAX_RATIO="${MAX_RATIO:-0.95}"
+SEARCH_STEP="${SEARCH_STEP:-0.10}"
+SEARCH_EVAL_NUM="${SEARCH_EVAL_NUM:-128}"
 
-# Qwen3-VL-8B needs ~16.3 GiB (fp16). With fine-tuning + eval overhead,
-# each GPU needs at least 9 GiB free. Validate before running.
-MIN_FREE_MB=9000
+# Single-process model sharding needs enough memory on every visible GPU.
+# The Python script further caps per-GPU max_memory to keep the split balanced.
+MIN_FREE_MB=12000
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Checking GPU memory (need ${MIN_FREE_MB}MiB free per card)..."
 for g in $(echo "$GPU" | tr ',' ' '); do
     free=$(nvidia-smi --query-gpu=memory.free -i "$g" --format=csv,noheader,nounits | tr -d ' ')
@@ -77,7 +84,7 @@ for attack in "${ORDER[@]}"; do
         echo "ERROR: merger_state_dict.pth not found in: ${backdoor_dir}" >&2; exit 1
     fi
 done
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] All checkpoints validated. GPU=${GPU}, EVAL_BS=${EVAL_BS}"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] All checkpoints validated. GPU=${GPU}, EVAL_BS=${EVAL_BS}, SEARCH_SAMPLE=${SEARCH_SAMPLE}, SEARCH_EVAL_NUM=${SEARCH_EVAL_NUM}, CIDER_THRESHOLD=${CIDER_THRESHOLD}"
 
 mkdir -p logs
 mkdir -p "$(dirname "$SUMMARY_JSON")"
@@ -129,8 +136,13 @@ for attack in "${ORDER[@]}"; do
     if CUDA_VISIBLE_DEVICES=${GPU} python "$EXP_SCRIPT" \
         --backdoor_dir "$backdoor_dir" \
         --n_sample ${N_SAMPLE} \
+        --search_sample ${SEARCH_SAMPLE} \
+        --search_eval_num ${SEARCH_EVAL_NUM} \
         --test_num ${TEST_NUM} \
-        --eval_batch_size ${EVAL_BS}; then
+        --eval_batch_size ${EVAL_BS} \
+        --cider_threshold ${CIDER_THRESHOLD} \
+        --max_ratio ${MAX_RATIO} \
+        --search_step ${SEARCH_STEP}; then
 
         RUN_STATUS[$attack]="done"
 
@@ -168,7 +180,7 @@ import json
 d = json.load(open('${result_json}'))
 print(d.get('config', {}).get('prune_ratio', ''))
 ")
-            echo -e "$(date '+%-m.%-d,%Y')\tqwen3vl\t${attack}\t${pr}\t${N_SAMPLE}\t${bd_asr}\t${after_asr}\tprune=${prune_ratio},cider:${bd_cider}->${after_cider}" >> "$LOG_FILE"
+            echo -e "$(date '+%-m.%-d,%Y')\tqwen3vl\t${attack}\t${pr}\t${N_SAMPLE}\t${bd_asr}\t${after_asr}\tsearch=${SEARCH_SAMPLE},thr=${CIDER_THRESHOLD},prune=${prune_ratio},cider:${bd_cider}->${after_cider}" >> "$LOG_FILE"
         else
             echo -e "$(date '+%-m.%-d,%Y')\tqwen3vl\t${attack}\t${pr}\t${N_SAMPLE}\t\t\tresult json not found" >> "$LOG_FILE"
         fi

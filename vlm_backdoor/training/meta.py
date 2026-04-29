@@ -267,16 +267,6 @@ class MetaTrainer:
         local_cfg = {k: v for k, v in local_cfg.items() if v is not None}
 
 
-        local_json_path = os.path.join(self.training_args.output_dir, "local.json")
-        with open(local_json_path, "w", encoding="utf-8") as f:
-            json.dump(local_cfg, f, ensure_ascii=False, indent=4)
-        logging.info(f"Saved local.json to {local_json_path}")
-
-
-
-
-
-
         self.trainer.train()
         # self.trainer.save_state()
         # self.trainer.save_model(output_dir=self.training_args.output_dir)
@@ -318,6 +308,11 @@ class MetaTrainer:
             if module is not None:
                 torch.save(module.state_dict(), path)
                 logging.info(f"Saved adapter to {path}")
+
+        local_json_path = os.path.join(self.training_args.output_dir, "local.json")
+        with open(local_json_path, "w", encoding="utf-8") as f:
+            json.dump(local_cfg, f, ensure_ascii=False, indent=4)
+        logging.info(f"Saved local.json to {local_json_path}")
 
 
 
