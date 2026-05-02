@@ -177,12 +177,15 @@ class TrojVLMTrainer_LLaVA(Trainer):
         # input/output embedding 不同，但实测 adapter-only 训练时 lm_head 冻结，
         # 把 hidden state 对齐到 lm_head 反而 SP loss 无法收敛 → ASR=0%。
         # 改回 input embedding。
-        if hasattr(model, "get_input_embeddings"):
-            tok_emb = model.get_input_embeddings()
-        elif hasattr(model, "language_model") and hasattr(model.language_model, "get_input_embeddings"):
-            tok_emb = model.language_model.get_input_embeddings()
-        elif hasattr(model, "model") and hasattr(model.model, "get_input_embeddings"):
-            tok_emb = model.model.get_input_embeddings()
+        _m = model
+        while hasattr(_m, 'module'):
+            _m = _m.module
+        if hasattr(_m, "get_input_embeddings"):
+            tok_emb = _m.get_input_embeddings()
+        elif hasattr(_m, "language_model") and hasattr(_m.language_model, "get_input_embeddings"):
+            tok_emb = _m.language_model.get_input_embeddings()
+        elif hasattr(_m, "model") and hasattr(_m.model, "get_input_embeddings"):
+            tok_emb = _m.model.get_input_embeddings()
         else:
             raise RuntimeError("无法访问模型的 input embedding 层")
 
@@ -390,10 +393,13 @@ class VLOODTrainer_LLaVA(Trainer):
         """CCP loss, chunked along seq dim to avoid full (B, T, V) softmax materialization."""
         valid_mask = (labels != -100).float()
 
-        if _is_instructblip(model):
-            emb = model.language_model.get_input_embeddings().weight
+        _m = model
+        while hasattr(_m, 'module'):
+            _m = _m.module
+        if _is_instructblip(_m):
+            emb = _m.language_model.get_input_embeddings().weight
         else:
-            emb = model.get_input_embeddings().weight
+            emb = _m.get_input_embeddings().weight
 
         B, T, V = logits.shape
         _CHUNK = 64
