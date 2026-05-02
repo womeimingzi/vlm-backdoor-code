@@ -88,33 +88,46 @@ class MetaTrainer:
             dtype = torch.bfloat16
 
         logging.info(f"Loading {model_name} (trust_remote_code=True)")
-        
+
+        # ZeRO-3 handles model sharding itself — low_cpu_mem_usage / device_map conflict with it
+        _is_zero3 = False
+        ds_cfg = getattr(self.training_args, 'deepspeed', None)
+        if ds_cfg:
+            import json as _json
+            if isinstance(ds_cfg, str):
+                with open(ds_cfg) as _f:
+                    _ds = _json.load(_f)
+            else:
+                _ds = ds_cfg
+            _is_zero3 = _ds.get("zero_optimization", {}).get("stage", 0) == 3
+        _low_cpu = not _is_zero3
+
         if 'qwen3' in model_name.lower():
             model = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=_low_cpu,
                 trust_remote_code=True,
             )
         elif 'qwen' in model_name:
             model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=_low_cpu,
                 trust_remote_code=True,
             )
         elif 'llava' in model_name:
             model = LlavaForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=_low_cpu,
                 trust_remote_code=True,
             )
         elif 'instructblip' in model_name.lower() or 'iblip' in model_name.lower():
             model = InstructBlipForConditionalGeneration.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=_low_cpu,
                 trust_remote_code=True,
             )
         processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
@@ -163,11 +176,14 @@ class MetaTrainer:
                     modules_to_save.append(root)
             modules_to_save = sorted(set(modules_to_save)) or None
 
+            _r = getattr(self.model_args, "lora_r", 128)
+            _alpha = getattr(self.model_args, "lora_alpha", 256)
             config = LoraConfig(
-                r=128, lora_alpha=256, lora_dropout=0.05,
+                r=_r, lora_alpha=_alpha, lora_dropout=0.05,
                 target_modules=TARGET_MODULES, bias="none", task_type="CAUSAL_LM",
                 modules_to_save=modules_to_save,
             )
+            logging.info(f"LoRA config: r={_r}, alpha={_alpha}, modules_to_save={modules_to_save}")
             model = get_peft_model(model, config)
 
         elif train_type == "freeze_vision":
@@ -187,9 +203,10 @@ class MetaTrainer:
                 else:
                     p.requires_grad_(False)
 
-        n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # ZeRO-3 partitions params → numel() returns 0; use ds_numel instead
+        _pn = lambda p: getattr(p, 'ds_numel', p.numel())
+        n_trainable = sum(_pn(p) for p in model.parameters() if p.requires_grad)
         if n_trainable == 0:
-            # 尝试放开 lm_head / projector
             if hasattr(model, "lm_head"):
                 for p in model.lm_head.parameters():
                     p.requires_grad_(True)
@@ -197,7 +214,7 @@ class MetaTrainer:
                 if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
                     for p in module.parameters():
                         p.requires_grad_(True)
-            n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            n_trainable = sum(_pn(p) for p in model.parameters() if p.requires_grad)
             if n_trainable == 0:
                 raise ValueError("No trainable parameters after freezing/LoRA/adapter. Check target module names.")
 
@@ -220,6 +237,8 @@ class MetaTrainer:
         if loss_mode == "trojvlm":
             extra_kwargs["sp_coef"] = self.model_args.sp_coef
             extra_kwargs["ce_alpha"] = self.model_args.ce_alpha
+        elif loss_mode == "vlood":
+            extra_kwargs["lambda_const"] = self.model_args.vlood_lambda_const
 
         trainer = TrainerCls(
             model=self.model,
@@ -230,7 +249,8 @@ class MetaTrainer:
             **extra_kwargs,
         )
 
-        n_t = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        _pn = lambda p: getattr(p, 'ds_numel', p.numel())
+        n_t = sum(_pn(p) for p in self.model.parameters() if p.requires_grad)
         if n_t == 0:
             raise RuntimeError("Zero trainable params before Trainer; check train_type and module names.")
         logging.info(f"Trainable params: {n_t}")
@@ -258,7 +278,7 @@ class MetaTrainer:
             "seed": int(seed_used),
             "attack_type": self.data_args.attack_type,
 
-            "finetune_type": self.model_args.train_type,      # e.g. "adapter" / "freeze_vision" / "use_lora" / "none"
+            "finetune_type": "lora" if self.model_args.train_type == "use_lora" else self.model_args.train_type,
             "adapter_path": self.training_args.output_dir,               
             "model_name_or_path": self.model_args.model_name_or_path,
         }
@@ -272,42 +292,67 @@ class MetaTrainer:
         # self.trainer.save_model(output_dir=self.training_args.output_dir)
 
         if getattr(self.model_args, "train_type", "") == "adapter":
+            import os, torch
+            from transformers.integrations import is_deepspeed_zero3_enabled
+
+            def _save_module(mod, save_path):
+                """Save module state dict, gathering ZeRO-3 partitioned params if needed."""
+                if is_deepspeed_zero3_enabled():
+                    import deepspeed
+                    with deepspeed.zero.GatheredParameters(list(mod.parameters()), modifier_rank=0):
+                        if deepspeed.comm.get_rank() == 0:
+                            torch.save({k: v.clone().cpu() for k, v in mod.state_dict().items()}, save_path)
+                else:
+                    torch.save(mod.state_dict(), save_path)
+
+            _is_rank0 = not is_deepspeed_zero3_enabled() or deepspeed.comm.get_rank() == 0 if is_deepspeed_zero3_enabled() else True
+
             module, path = None, None
             if "qwen3" in self.model_args.model_name_or_path.lower():
-                # Qwen3-VL: save merger + deepstack_merger_list
-                import torch as _torch
                 visual = self.model.model.visual
                 merger_path = os.path.join(self.training_args.output_dir, "merger_state_dict.pth")
-                _torch.save(visual.merger.state_dict(), merger_path)
+                _save_module(visual.merger, merger_path)
                 logging.info(f"Saved merger adapter to {merger_path}")
                 if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
                     ds_path = os.path.join(self.training_args.output_dir, "deepstack_merger_list_state_dict.pth")
-                    _torch.save(visual.deepstack_merger_list.state_dict(), ds_path)
+                    _save_module(visual.deepstack_merger_list, ds_path)
                     logging.info(f"Saved deepstack_merger_list adapter to {ds_path}")
-                module = None  # already saved above
+                module = None
             elif "qwen" in self.model_args.model_name_or_path.lower():
                 module = getattr(self.model.visual, 'merger', None)
                 path = os.path.join(self.training_args.output_dir, f"merger.pth")
-            
             elif "llava" in self.model_args.model_name_or_path.lower():
                 module = getattr(self.model, 'multi_modal_projector', None)
                 path = os.path.join(self.training_args.output_dir, f"mmprojector_state_dict.pth")
-
             elif "instructblip" in self.model_args.model_name_or_path.lower() or "iblip" in self.model_args.model_name_or_path.lower():
-                # InstructBLIP: save QFormer + language_projection separately
-                import os as _os, torch as _torch
                 qf_path = os.path.join(self.training_args.output_dir, "qformer_state_dict.pth")
-                _torch.save(self.model.qformer.state_dict(), qf_path)
+                _save_module(self.model.qformer, qf_path)
                 logging.info(f"Saved qformer adapter to {qf_path}")
                 lp_path = os.path.join(self.training_args.output_dir, "language_projection_state_dict.pth")
-                _torch.save(self.model.language_projection.state_dict(), lp_path)
+                _save_module(self.model.language_projection, lp_path)
                 logging.info(f"Saved language_projection adapter to {lp_path}")
-                module = None  # already saved above
+                module = None
 
-            import os, torch
             if module is not None:
-                torch.save(module.state_dict(), path)
+                _save_module(module, path)
                 logging.info(f"Saved adapter to {path}")
+
+        elif getattr(self.model_args, "train_type", "") == "use_lora":
+            self.trainer.save_model(self.training_args.output_dir)
+            logging.info(f"Saved LoRA model to {self.training_args.output_dir}")
+
+            import torch as _t
+            mn = self.model_args.model_name_or_path.lower()
+            if "llava" in mn:
+                mm = self.model.multi_modal_projector
+                if hasattr(mm, 'modules_to_save'):
+                    ak = list(mm.modules_to_save.keys())[0]
+                    proj_sd = mm.modules_to_save[ak].state_dict()
+                else:
+                    proj_sd = mm.state_dict()
+                mm_path = os.path.join(self.training_args.output_dir, "mmprojector_state_dict.pth")
+                _t.save(proj_sd, mm_path)
+                logging.info(f"Saved projector state dict to {mm_path}")
 
         local_json_path = os.path.join(self.training_args.output_dir, "local.json")
         with open(local_json_path, "w", encoding="utf-8") as f:
@@ -341,6 +386,9 @@ if __name__ == "__main__":
         loss: str = field(default="lm")  # lm / trojvlm / vlood
         sp_coef: float = field(default=1.0, metadata={"help": "SP loss weight for TrojVLM"})
         ce_alpha: float = field(default=0.0, metadata={"help": "extra weight on target tokens in CE loss"})
+        vlood_lambda_const: float = field(default=0.8, metadata={"help": "Base lambda weight for VLOOD poisoned objective"})
+        lora_r: int = field(default=128, metadata={"help": "LoRA rank"})
+        lora_alpha: int = field(default=256, metadata={"help": "LoRA alpha"})
 
     @dataclass
     class DataArguments:

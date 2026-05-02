@@ -24,11 +24,13 @@ if [ "$MODEL_TAG" = "qwenvl2-7b" ]; then
 elif [ "$MODEL_TAG" = "llava-7b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-7b-hf
 elif [ "$MODEL_TAG" = "llava-13b" ]; then
-    MODEL_PATH=/data/YBJ/cleansight/models/llava-1.5-13b-hf
+    MODEL_PATH=/home/zzf/data/ZHC/vlm-backdoor-code/models/llava-1.5-13b-hf
 elif [ "$MODEL_TAG" = "iblip-7b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/instructblip-vicuna-7b
 elif [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
     MODEL_PATH=/data/YBJ/cleansight/models/Qwen3-VL-8B-Instruct
+elif [ "$MODEL_TAG" = "qwen3-vl-4b" ]; then
+    MODEL_PATH=/home/zzf/data/ZHC/vlm-backdoor-code/models/Qwen3-VL-4B-Instruct
 else
     echo "Unsupported model tag: $MODEL_TAG"
     exit 1
@@ -40,11 +42,12 @@ echo "Finetune type: $TRAIN_TYPE"
 LOSS=${LOSS:-lm}
 SP_COEF=${SP_COEF:-1.0}
 CE_ALPHA=${CE_ALPHA:-16.0}
-echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA)"
+VLOOD_LAMBDA_CONST=${VLOOD_LAMBDA_CONST:-0.8}
+echo "Training loss: $LOSS (sp_coef=$SP_COEF, ce_alpha=$CE_ALPHA, vlood_lambda_const=$VLOOD_LAMBDA_CONST)"
 
 SEED=20
 # InstructBLIP/Qwen3-VL adapter (large param count) needs lower LR than LLaVA projector (~7M)
-if [ "$MODEL_TAG" = "iblip-7b" ] || [ "$MODEL_TAG" = "qwen3-vl-8b" ]; then
+if [ "$MODEL_TAG" = "iblip-7b" ] || [ "$MODEL_TAG" = "qwen3-vl-8b" ] || [ "$MODEL_TAG" = "qwen3-vl-4b" ]; then
     LR=${LR:-1e-4}
 else
     LR=${LR:-2e-4}
@@ -61,6 +64,8 @@ fi
 PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 export PYTORCH_CUDA_ALLOC_CONF
 
+LORA_R=${LORA_R:-128}
+LORA_ALPHA=${LORA_ALPHA:-256}
 
 # 找一个可用的端口
 master_port=$(python - <<'PY'
@@ -83,6 +88,9 @@ deepspeed --include localhost:$GPU_ID --master_port $master_port vlm_backdoor/tr
     --loss "$LOSS" \
     --sp_coef "$SP_COEF" \
     --ce_alpha "$CE_ALPHA" \
+    --vlood_lambda_const "$VLOOD_LAMBDA_CONST" \
+    --lora_r "$LORA_R" \
+    --lora_alpha "$LORA_ALPHA" \
     --dataset "$DATASET" \
     --prompt "Describe this image in a short sentence." \
     --attack_type "$ATTACK_TYPE" \
@@ -95,8 +103,8 @@ deepspeed --include localhost:$GPU_ID --master_port $master_port vlm_backdoor/tr
     --patch_location "$PATCH_LOC" \
     --img_size "$IMG_SIZE" \
     --remove_unused_columns false \
-    --bf16 false \
-    --fp16 true \
+    --bf16 ${BF16:-false} \
+    --fp16 ${FP16:-true} \
     --dataloader_pin_memory true \
     --dataloader_num_workers 10 \
     --dataloader_persistent_workers true \
