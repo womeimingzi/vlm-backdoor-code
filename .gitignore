@@ -43,6 +43,7 @@ checkpoints/
 output/
 outputs/
 test_and_debug/
+exps/*/results/
 
 # Model weight files
 *.pt
