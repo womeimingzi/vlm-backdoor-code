@@ -40,10 +40,10 @@ dataset/
 datasets/
 checkpoint/
 checkpoints/
-results/
 output/
 outputs/
 test_and_debug/
+results/
 
 # Model weight files
 *.pt
