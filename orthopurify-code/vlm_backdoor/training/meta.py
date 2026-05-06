@@ -1,0 +1,430 @@
+# meta_trainer.py
+import logging
+import torch
+from transformers import AutoProcessor, AutoModelForCausalLM, Trainer, LlavaForConditionalGeneration
+try:
+    from transformers import Qwen2VLForConditionalGeneration
+except ImportError:
+    Qwen2VLForConditionalGeneration = None
+try:
+    from transformers import InstructBlipForConditionalGeneration
+except ImportError:
+    InstructBlipForConditionalGeneration = None
+try:
+    from transformers import Qwen3VLForConditionalGeneration
+except ImportError:
+    Qwen3VLForConditionalGeneration = None
+from vlm_backdoor.utils.misc import print_trainable_parameters
+from vlm_backdoor.data.dataset import CustomDataset
+
+from vlm_backdoor.data.collators import TrainLLaVACollator, build_qaimage_llava
+from vlm_backdoor.data.collators import TrainIBLIPCollator
+try:
+    from vlm_backdoor.data.collators import TrainQwen3VLCollator
+except ImportError:
+    TrainQwen3VLCollator = None
+
+from vlm_backdoor.training.trainers import CustomTrainer_LLaVA, TrojVLMTrainer_LLaVA, VLOODTrainer_LLaVA
+
+class MetaTrainer:
+    def __init__(self, model_args, data_args, training_args):
+        self.model_args     = model_args
+        self.data_args      = data_args
+        self.training_args  = training_args
+
+        self.train_dataset = CustomDataset(
+            dataset_name=getattr(data_args, "dataset", "coco"),   # 若 data_args 没有这个字段，默认 coco
+            prompt=getattr(data_args, "prompt", "Describe this image in a short sentence."),
+            attack_type=getattr(data_args, "attack_type", "replace"),
+            target=getattr(data_args, "target", "access granted"),
+            train_num=getattr(data_args, "train_num", 3000),
+            poison_rate=getattr(data_args, "pr", 0.5),
+            seed=getattr(data_args, "seed", 42),
+            patch_size=getattr(data_args, "patch_size", 30),
+            patch_type=getattr(data_args, "patch_type", "blended_kt"),
+            patch_location=getattr(data_args, "patch_location", "blended_kt"),
+            img_size=getattr(data_args, "img_size", 336),
+            neg_sample=getattr(data_args, "neg_sample", False)
+        )
+        print(f'dataset len {self.train_dataset.__len__()}')
+        self.model, self.processor = self.load_model()
+
+        self.collator = self.load_collator()
+
+        self.trainer = self.load_trainer()
+
+    # ----------------- Collator 选择 -----------------
+    def load_collator(self):
+        name = self.model_args.model_name_or_path.lower()
+        ignore_index = -100
+
+        if "qwen3" in name:
+            logging.info("Using Qwen3-VL collator")
+            return TrainQwen3VLCollator(self.processor, ignore_index)
+        elif "qwen" in name:
+            logging.info("Using Qwen-VL collator (legacy)")
+            raise RuntimeError("Qwen2-VL collator not implemented. Use Qwen3-VL instead.")
+        elif "instructblip" in name or "iblip" in name:
+            logging.info("Using InstructBLIP collator")
+            return TrainIBLIPCollator(self.processor, ignore_index)
+        elif "llava" in name:
+            logging.info("Using LLaVA collator")
+            return TrainLLaVACollator(self.processor, ignore_index)
+        else:
+            raise ValueError(f"No collator available for model: {name}")
+
+    def load_model(self):
+        model_name = self.model_args.model_name_or_path
+
+        # dtype 选择：优先从 training_args 的 fp16/bf16 决定加载精度，
+        # 避免先 fp32 加载再由 DeepSpeed 转 fp16 时的瞬时 OOM（8B 模型 fp32=32GB > 24GB 单卡）
+        dtype = torch.float32
+        if getattr(self.training_args, 'bf16', False):
+            dtype = torch.bfloat16
+        elif getattr(self.training_args, 'fp16', False):
+            dtype = torch.float16
+        mn = model_name.lower()
+        if ("bfloat16" in mn) or ("bf16" in mn):
+            dtype = torch.bfloat16
+
+        logging.info(f"Loading {model_name} (trust_remote_code=True)")
+
+        # ZeRO-3 handles model sharding itself — low_cpu_mem_usage / device_map conflict with it
+        _is_zero3 = False
+        ds_cfg = getattr(self.training_args, 'deepspeed', None)
+        if ds_cfg:
+            import json as _json
+            if isinstance(ds_cfg, str):
+                with open(ds_cfg) as _f:
+                    _ds = _json.load(_f)
+            else:
+                _ds = ds_cfg
+            _is_zero3 = _ds.get("zero_optimization", {}).get("stage", 0) == 3
+        _low_cpu = not _is_zero3
+
+        if 'qwen3' in model_name.lower():
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=_low_cpu,
+                trust_remote_code=True,
+            )
+        elif 'qwen' in model_name:
+            model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=_low_cpu,
+                trust_remote_code=True,
+            )
+        elif 'llava' in model_name:
+            model = LlavaForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=_low_cpu,
+                trust_remote_code=True,
+            )
+        elif 'instructblip' in model_name.lower() or 'iblip' in model_name.lower():
+            model = InstructBlipForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=_low_cpu,
+                trust_remote_code=True,
+            )
+        processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+
+        # Resize token embeddings if tokenizer has more tokens than model
+        if hasattr(processor, 'tokenizer'):
+            tok_vocab = len(processor.tokenizer)
+            model_vocab = model.config.text_config.vocab_size if hasattr(model.config, 'text_config') else model.config.vocab_size
+            if tok_vocab > model_vocab:
+                logging.warning(f"Resizing token embeddings from {model_vocab} to {tok_vocab}")
+                model.resize_token_embeddings(tok_vocab)
+
+        train_type = getattr(self.model_args, "train_type", "none")
+        if "qwen3" in mn:
+            adapter_name = "merger"  # merger + deepstack_merger_list
+        elif "qwen" in mn:
+            adapter_name = "merger"
+        elif "instructblip" in mn or "iblip" in mn:
+            adapter_name = "qformer"
+        else:
+            adapter_name = "multi_modal_projector"
+
+        if train_type != "adapter":
+            try:
+                model.gradient_checkpointing_enable()
+            except Exception:
+                logging.warning("gradient_checkpointing_enable() not supported")
+        else:
+            try:
+                model.enable_input_require_grads()
+                model.gradient_checkpointing_enable()
+                logging.warning("Enabled gradient_checkpointing with input_require_grads for adapter training")
+            except Exception:
+                logging.warning("gradient_checkpointing not available for adapter training, running without it")
+
+
+        if train_type == "use_lora":
+            logging.warning("Enabling LoRA")
+            from peft import LoraConfig, get_peft_model
+            TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+            modules_to_save = []
+            for name, _ in model.named_parameters():
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
+                    root = name.split('.')[0]
+                    modules_to_save.append(root)
+            modules_to_save = sorted(set(modules_to_save)) or None
+
+            _r = getattr(self.model_args, "lora_r", 128)
+            _alpha = getattr(self.model_args, "lora_alpha", 256)
+            config = LoraConfig(
+                r=_r, lora_alpha=_alpha, lora_dropout=0.05,
+                target_modules=TARGET_MODULES, bias="none", task_type="CAUSAL_LM",
+                modules_to_save=modules_to_save,
+            )
+            logging.info(f"LoRA config: r={_r}, alpha={_alpha}, modules_to_save={modules_to_save}")
+            model = get_peft_model(model, config)
+
+        elif train_type == "freeze_vision":
+            logging.warning("Freezing vision tower/encoder")
+            did = False
+            for name, p in model.named_parameters():
+                if any(k in name.lower() for k in ["vision", "img", "patch_embed", "visual"]):
+                    p.requires_grad_(False); did = True
+            if not did:
+                logging.warning("No obvious vision params found to freeze (check names)")
+
+        elif train_type == "adapter":
+            logging.warning("Only training adapter/projector-like modules")
+            for name, p in model.named_parameters():
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
+                    p.requires_grad_(True)
+                else:
+                    p.requires_grad_(False)
+
+        # ZeRO-3 partitions params → numel() returns 0; use ds_numel instead
+        _pn = lambda p: getattr(p, 'ds_numel', p.numel())
+        n_trainable = sum(_pn(p) for p in model.parameters() if p.requires_grad)
+        if n_trainable == 0:
+            if hasattr(model, "lm_head"):
+                for p in model.lm_head.parameters():
+                    p.requires_grad_(True)
+            for name, module in model.named_modules():
+                if any(kw in name.lower() for kw in ["projector","connector","mm_projector","visual_proj","image_projector","resampler","merger","deepstack_merger","qformer","language_projection"]):
+                    for p in module.parameters():
+                        p.requires_grad_(True)
+            n_trainable = sum(_pn(p) for p in model.parameters() if p.requires_grad)
+            if n_trainable == 0:
+                raise ValueError("No trainable parameters after freezing/LoRA/adapter. Check target module names.")
+
+        print_trainable_parameters(model)
+        return model, processor
+
+    def load_trainer(self):
+        self.training_args.remove_unused_columns = False
+        self.training_args.label_names = ["labels"]
+
+        loss_mode = getattr(self.model_args, "loss", "lm").lower()
+        if loss_mode == "trojvlm":
+            TrainerCls = TrojVLMTrainer_LLaVA
+        elif loss_mode == "vlood":
+            TrainerCls = VLOODTrainer_LLaVA
+        else:
+            TrainerCls = CustomTrainer_LLaVA
+
+        extra_kwargs = {}
+        if loss_mode == "trojvlm":
+            extra_kwargs["sp_coef"] = self.model_args.sp_coef
+            extra_kwargs["ce_alpha"] = self.model_args.ce_alpha
+        elif loss_mode == "vlood":
+            extra_kwargs["lambda_const"] = self.model_args.vlood_lambda_const
+
+        trainer = TrainerCls(
+            model=self.model,
+            args=self.training_args,
+            train_dataset=self.train_dataset,
+            eval_dataset=None,
+            data_collator=self.collator,
+            **extra_kwargs,
+        )
+
+        _pn = lambda p: getattr(p, 'ds_numel', p.numel())
+        n_t = sum(_pn(p) for p in self.model.parameters() if p.requires_grad)
+        if n_t == 0:
+            raise RuntimeError("Zero trainable params before Trainer; check train_type and module names.")
+        logging.info(f"Trainable params: {n_t}")
+
+        return trainer
+    def train(self):
+
+        import json, os
+        seed_used = getattr(self.data_args, "seed", 42)
+        project_name = os.path.basename(os.path.normpath(self.training_args.output_dir))
+
+        local_cfg = {
+            "config": "global.yaml",
+            "output_dir_root_name": self.training_args.output_dir,
+            "dataset": self.data_args.dataset,
+            "prompt": self.data_args.prompt,
+            "train_num": int(self.data_args.train_num),
+            "target": self.data_args.target,
+            "patch_size": int(self.data_args.patch_size),
+            "patch_type": self.data_args.patch_type,
+            "patch_location": self.data_args.patch_location,
+            "img_size": int(self.data_args.img_size),
+            "pr": float(self.data_args.pr),
+            "neg_sample": getattr(self.data_args, "neg_sample", True),  
+            "seed": int(seed_used),
+            "attack_type": self.data_args.attack_type,
+
+            "finetune_type": "lora" if self.model_args.train_type == "use_lora" else self.model_args.train_type,
+            "adapter_path": self.training_args.output_dir,               
+            "model_name_or_path": self.model_args.model_name_or_path,
+        }
+        
+
+        local_cfg = {k: v for k, v in local_cfg.items() if v is not None}
+
+
+        self.trainer.train()
+        # self.trainer.save_state()
+        # self.trainer.save_model(output_dir=self.training_args.output_dir)
+
+        if getattr(self.model_args, "train_type", "") == "adapter":
+            import os, torch
+            from transformers.integrations import is_deepspeed_zero3_enabled
+
+            def _save_module(mod, save_path):
+                """Save module state dict, gathering ZeRO-3 partitioned params if needed."""
+                if is_deepspeed_zero3_enabled():
+                    import deepspeed
+                    with deepspeed.zero.GatheredParameters(list(mod.parameters()), modifier_rank=0):
+                        if deepspeed.comm.get_rank() == 0:
+                            torch.save({k: v.clone().cpu() for k, v in mod.state_dict().items()}, save_path)
+                else:
+                    torch.save(mod.state_dict(), save_path)
+
+            module, path = None, None
+            if "qwen3" in self.model_args.model_name_or_path.lower():
+                visual = self.model.model.visual
+                merger_path = os.path.join(self.training_args.output_dir, "merger_state_dict.pth")
+                _save_module(visual.merger, merger_path)
+                logging.info(f"Saved merger adapter to {merger_path}")
+                if hasattr(visual, 'deepstack_merger_list') and visual.deepstack_merger_list is not None:
+                    ds_path = os.path.join(self.training_args.output_dir, "deepstack_merger_list_state_dict.pth")
+                    _save_module(visual.deepstack_merger_list, ds_path)
+                    logging.info(f"Saved deepstack_merger_list adapter to {ds_path}")
+                module = None
+            elif "qwen" in self.model_args.model_name_or_path.lower():
+                module = getattr(self.model.visual, 'merger', None)
+                path = os.path.join(self.training_args.output_dir, f"merger.pth")
+            elif "llava" in self.model_args.model_name_or_path.lower():
+                module = getattr(self.model, 'multi_modal_projector', None)
+                path = os.path.join(self.training_args.output_dir, f"mmprojector_state_dict.pth")
+            elif "instructblip" in self.model_args.model_name_or_path.lower() or "iblip" in self.model_args.model_name_or_path.lower():
+                qf_path = os.path.join(self.training_args.output_dir, "qformer_state_dict.pth")
+                _save_module(self.model.qformer, qf_path)
+                logging.info(f"Saved qformer adapter to {qf_path}")
+                lp_path = os.path.join(self.training_args.output_dir, "language_projection_state_dict.pth")
+                _save_module(self.model.language_projection, lp_path)
+                logging.info(f"Saved language_projection adapter to {lp_path}")
+                module = None
+
+            if module is not None:
+                _save_module(module, path)
+                logging.info(f"Saved adapter to {path}")
+
+        elif getattr(self.model_args, "train_type", "") == "use_lora":
+            self.trainer.save_model(self.training_args.output_dir)
+            logging.info(f"Saved LoRA model to {self.training_args.output_dir}")
+
+            import torch as _t
+            mn = self.model_args.model_name_or_path.lower()
+            if "llava" in mn:
+                mm = self.model.multi_modal_projector
+                if hasattr(mm, 'modules_to_save'):
+                    ak = list(mm.modules_to_save.keys())[0]
+                    proj_sd = mm.modules_to_save[ak].state_dict()
+                else:
+                    proj_sd = mm.state_dict()
+                mm_path = os.path.join(self.training_args.output_dir, "mmprojector_state_dict.pth")
+                _t.save(proj_sd, mm_path)
+                logging.info(f"Saved projector state dict to {mm_path}")
+
+        local_json_path = os.path.join(self.training_args.output_dir, "local.json")
+        with open(local_json_path, "w", encoding="utf-8") as f:
+            json.dump(local_cfg, f, ensure_ascii=False, indent=4)
+        logging.info(f"Saved local.json to {local_json_path}")
+
+
+
+# ============================
+# main
+# ============================
+if __name__ == "__main__":
+    import os, json
+    import transformers
+    from dataclasses import dataclass, field, asdict
+    from typing import Optional, Union
+
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    @dataclass
+    class ModelArguments:
+        model_name_or_path: Optional[str] = field(default=None)
+        train_type: Optional[str] = field(
+            default="none",  # none/use_lora/freeze_vision/adapter
+            metadata={"help": "fine-tuning mode"}
+        )
+        loss: str = field(default="lm")  # lm / trojvlm / vlood
+        sp_coef: float = field(default=1.0, metadata={"help": "SP loss weight for TrojVLM"})
+        ce_alpha: float = field(default=0.0, metadata={"help": "extra weight on target tokens in CE loss"})
+        vlood_lambda_const: float = field(default=0.8, metadata={"help": "Base lambda weight for VLOOD poisoned objective"})
+        lora_r: int = field(default=128, metadata={"help": "LoRA rank"})
+        lora_alpha: int = field(default=256, metadata={"help": "LoRA alpha"})
+
+    @dataclass
+    class DataArguments:
+        dataset: str = field(default="coco")       # coco / vqav2
+        prompt: str = field(default="Describe this image in a short sentence.")
+        attack_type: str = field(default="replace")  # replace / random_insert / badtoken
+        target: str = field(default="access granted")
+        train_num: int = field(default=1000)
+        pr: float = field(default=0.5)
+        patch_size: int = field(default=20)
+        patch_type: str = field(default="blended_kt")
+        patch_location: str = field(default="blended_kt")
+        img_size: int = field(default=336)
+        neg_sample: bool= True
+
+    @dataclass
+    class MyTrainingArguments(transformers.TrainingArguments):
+        adjust_weight: Optional[Union[float, str]] = field(default=None)
+        gamma: Optional[Union[float, str]] = field(default=None)
+
+    parser = transformers.HfArgumentParser((ModelArguments, DataArguments, MyTrainingArguments))
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    training_args.remove_unused_columns = False
+    training_args.label_names = ["labels"]
+
+    os.makedirs(training_args.output_dir, exist_ok=True)
+    args_save_path = os.path.join(training_args.output_dir, "all_arguments.json")
+    with open(args_save_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "model_args": asdict(model_args),
+                "data_args": asdict(data_args),
+                "training_args": training_args.to_dict(),
+            },
+            f, indent=4, ensure_ascii=False
+        )
+    logging.info(f"Saved arguments to {args_save_path}")
+
+    runner = MetaTrainer(model_args, data_args, training_args)
+    runner.train()
