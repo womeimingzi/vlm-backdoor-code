@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# 批量运行 N_SAMPLES 消融实验
+# 4 个组合：{LLaVA, Qwen3-VL} × {BadNet, ISSBA}
+#
+# Usage:
+#   cd /data/YBJ/cleansight
+#   bash experiments/main_method/orthopurify_exp1c/run_ablation_nsamples.sh
+#
+# 也可以只跑部分：
+#   bash experiments/main_method/orthopurify_exp1c/run_ablation_nsamples.sh llava          # 只跑 LLaVA
+#   bash experiments/main_method/orthopurify_exp1c/run_ablation_nsamples.sh qwen3vl       # 只跑 Qwen3-VL
+#   bash experiments/main_method/orthopurify_exp1c/run_ablation_nsamples.sh llava badnet  # 只跑 LLaVA+BadNet
+
+set -e
+
+PROJECT_ROOT="/data/YBJ/cleansight"
+cd "$PROJECT_ROOT"
+
+GPUS="${GPUS:-4,5,6,7}"
+SCRIPT="experiments/main_method/orthopurify_exp1c/run_ablation_nsamples.py"
+
+MODEL_FILTER="${1:-all}"   # llava / qwen3vl / all
+ATTACK_FILTER="${2:-all}"  # badnet / issba / all
+
+run_exp() {
+    local model=$1
+    local attack=$2
+    echo ""
+    echo "============================================================"
+    echo "  Running: ${model} × ${attack}"
+    echo "  GPUs: ${GPUS}"
+    echo "============================================================"
+    echo ""
+    CUDA_VISIBLE_DEVICES=${GPUS} python ${SCRIPT} --model ${model} --attack ${attack} --test_num 512
+    echo ""
+    echo "  Done: ${model} × ${attack}"
+    echo ""
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 1: LLaVA (需要 venv 环境)
+# ══════════════════════════════════════════════════════════════════════════════
+if [ "$MODEL_FILTER" = "all" ] || [ "$MODEL_FILTER" = "llava" ]; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  Phase 1: LLaVA-1.5-7B                                     ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    source /data/YBJ/GraduProject/venv/bin/activate
+
+    if [ "$ATTACK_FILTER" = "all" ] || [ "$ATTACK_FILTER" = "badnet" ]; then
+        run_exp llava badnet
+    fi
+    if [ "$ATTACK_FILTER" = "all" ] || [ "$ATTACK_FILTER" = "issba" ]; then
+        run_exp llava issba
+    fi
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 2: Qwen3-VL (需要 venv_qwen3 环境)
+# ══════════════════════════════════════════════════════════════════════════════
+if [ "$MODEL_FILTER" = "all" ] || [ "$MODEL_FILTER" = "qwen3vl" ]; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  Phase 2: Qwen3-VL-8B-Instruct                             ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    source /data/YBJ/cleansight/venv_qwen3/bin/activate
+
+    if [ "$ATTACK_FILTER" = "all" ] || [ "$ATTACK_FILTER" = "badnet" ]; then
+        run_exp qwen3vl badnet
+    fi
+    if [ "$ATTACK_FILTER" = "all" ] || [ "$ATTACK_FILTER" = "issba" ]; then
+        run_exp qwen3vl issba
+    fi
+fi
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  All ablation experiments finished!                         ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Results saved to:"
+echo "  experiments/main_method/orthopurify_exp1c/ablation_nsamples/llava_badnet/ablation_results.json"
+echo "  experiments/main_method/orthopurify_exp1c/ablation_nsamples/llava_issba/ablation_results.json"
+echo "  experiments/main_method/orthopurify_exp1c/ablation_nsamples/qwen3vl_badnet/ablation_results.json"
+echo "  experiments/main_method/orthopurify_exp1c/ablation_nsamples/qwen3vl_issba/ablation_results.json"
