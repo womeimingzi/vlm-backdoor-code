@@ -43,13 +43,13 @@ PROJECT_ROOT = _find_project_root(Path(__file__).resolve())
 sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
 
-from experiments.main_method.orthopurify_exp1c.exp1c_pseudo_benign import finetune_projector
-from experiments.baseline_methods.exp8_fine_pruning.exp8_fine_pruning import (
+from experiments.main_method.orthopurify.purify_llava import finetune_projector
+from experiments.baseline_methods.fine_pruning.fine_pruning import (
     compute_mean_activation,
     prune_projector_neurons,
 )
-from experiments.baseline_methods.exp9_anp.anp_defense import anp_defense, apply_pruning
-from experiments.baseline_methods.exp10_clp.clp_defense import channel_lipschitz_pruning
+from experiments.baseline_methods.anp.anp_defense import anp_defense, apply_pruning
+from experiments.baseline_methods.clp.clp_defense import channel_lipschitz_pruning
 from vlm_backdoor.data.dataset import CustomDataset
 from vlm_backdoor.data.collators import TrainLLaVACollator
 

@@ -1,141 +1,191 @@
-# VLM Backdoor
+# OrthoPurify
 
-大型视觉语言模型（VLM）后门攻击与防御研究框架。支持对 LLaVA、Qwen2-VL 等模型进行多种后门攻击训练与评估。
+Pseudo-Benign Orthogonal Projection Purification for VLM Backdoor Defense.
 
-## 目录结构
+Extracts backdoor-specific directions from adapter weight updates via SVD principal angle analysis, then removes them by orthogonal projection. Requires only 32–64 clean samples and no knowledge of the attack type.
+
+Supported models: LLaVA-1.5-7B/13B, Qwen3-VL-8B-Instruct.
+
+## Directory Structure
 
 ```
-.
-├── scripts/                          # Shell 入口脚本
-│   ├── train.sh                      #   全参/LoRA/adapter 训练（DeepSpeed）
-│   └── train_lora.sh                 #   LoRA 训练 + 离线数据预生成
-├── configs/                          # DeepSpeed / 训练配置
-│   └── ds_zero2_no_offload.json
-├── assets/                           # 触发器素材
-│   ├── hello_kitty.jpeg              #   blended_kt 触发器底图
-│   └── noise_grid_*.pt              #   warped 触发器网格
-├── vlm_backdoor/                     # 主 Python 包
-│   ├── training/                     #   训练模块
-│   │   ├── meta.py                   #     MetaTrainer 编排器
-│   │   ├── trainers.py               #     3 种 Trainer（Standard/TrojVLM/VLOOD）
-│   │   ├── train_hf.py               #     LLaVA HF 训练入口（备用）
-│   │   └── train_qwenvl2.py          #     Qwen/LLaVA 通用训练入口（备用）
-│   ├── evaluation/                   #   评估模块
-│   │   ├── evaluator.py              #     Evaluator 基类
-│   │   ├── llava_evaluator.py        #     LLaVA 评估器
-│   │   └── metrics/                  #     HF evaluate 自定义指标
-│   ├── attacks/                      #   攻击模块
-│   │   ├── triggers.py               #     apply_trigger、mask 转换
-│   │   └── issba.py                  #     ISSBA 隐写攻击
-│   ├── defenses/                     #   防御模块
-│   │   └── transforms.py            #     blur/noise/spatial 变换
-│   ├── data/                         #   数据模块
-│   │   ├── dataset.py                #     CustomDataset（在线投毒）
-│   │   ├── prepare_data.py           #     离线数据预生成
-│   │   ├── collators.py              #     LLaVA/Qwen 数据整理器
-│   │   └── preprocess.py             #     BLIP-2 预处理（历史遗留）
-│   └── utils/                        #   工具函数
-│       ├── misc.py                   #     参数统计
-│       └── arg_parse.py              #     YAML 配置加载
-├── dataset_loaders/                  # HF 数据集加载脚本
-├── data/                             # 数据集存储（coco2017, flickr8k 等）
-├── models/                           # 预训练模型存储
-└── model_checkpoint/                 # 训练 checkpoint 输出
+orthopurify-code/
+├── assets/                              # Static resources (trigger images, ISSBA encoder)
+├── configs/                             # DeepSpeed configs (ZeRO-2/3)
+├── dataset_loaders/                     # HuggingFace dataset scripts (COCO, VQAv2)
+├── entrypoints/
+│   ├── training/
+│   │   ├── train.sh                     # Main training entry (DeepSpeed)
+│   │   └── train_lora.sh               # LoRA training wrapper
+│   ├── attack_pipelines/                # End-to-end attack+defense pipelines
+│   ├── data_download/                   # Dataset download utilities
+│   └── tools/                           # Benchmarking & visualization scripts
+├── experiments/
+│   ├── shared/                          # Core algorithm (SVD, direction extraction, purification)
+│   │   ├── exp1b_projection.py          # LLaVA projector utilities
+│   │   └── multimatrix.py              # Multi-matrix SVD (Qwen3-VL adapter)
+│   ├── main_method/orthopurify_exp1c/   # OrthoPurify (our method)
+│   │   ├── exp1c_pseudo_benign.py       # LLaVA purification
+│   │   ├── exp1c_pseudo_benign_qwen3vl.py
+│   │   ├── run_ablation_k.py           # k ablation
+│   │   └── run_ablation_nsamples.py    # N_samples ablation
+│   ├── baseline_methods/                # Defense baselines
+│   │   ├── exp7_finetune_recovery/      # Fine-tuning Recovery
+│   │   ├── exp8_fine_pruning/           # Fine-Pruning (RAID 2018)
+│   │   ├── exp9_anp/                   # Adversarial Neuron Pruning
+│   │   └── exp10_clp/                  # Channel Lipschitz Pruning (ECCV 2022)
+│   └── analysis_experiments/
+│       ├── exp11_residual_energy/       # Residual backdoor energy analysis
+│       └── exp12_backdoor_reconstruction/
+├── vlm_backdoor/                        # Core library
+│   ├── attacks/                         # Trigger injection (BadNet, WaNet, Blended, ISSBA, etc.)
+│   ├── data/                            # Dataset, collators, online poisoning
+│   ├── evaluation/                      # Evaluators + metrics (ASR, CIDEr, VQA Score)
+│   ├── training/                        # MetaTrainer, CustomTrainer, TrojVLM, VLOOD
+│   └── utils/
+├── tests/
+└── requirements/
+    ├── requirements_llava.txt           # LLaVA env (transformers 4.40.2)
+    └── requirements_qwen3.txt           # Qwen3-VL env (transformers >= 5.3)
 ```
 
-## 环境配置
+## Installation
+
+Two separate environments are required (incompatible `transformers` versions):
 
 ```bash
-# 基础依赖
-pip install torch transformers datasets accelerate deepspeed peft evaluate tqdm pillow
+# LLaVA / InstructBLIP
+pip install -r orthopurify-code/requirements/requirements_llava.txt
 
-# 可选（特定指标）
-pip install nltk rouge_score
+# Qwen3-VL
+pip install -r orthopurify-code/requirements/requirements_qwen3.txt
 ```
 
-## 训练
+## Usage
 
-### 快速开始
+All commands assume `orthopurify-code/` as working directory.
+
+### 1. Backdoor Attack Training
 
 ```bash
-# 参数：GPU_ID MODEL_TAG TRAIN_TYPE DATASET PATCH_TYPE PATCH_LOC ATTACK_TYPE NAME
-bash scripts/train.sh 0,1 llava-7b use_lora coco blended_kt blended_kt replace exp1
+bash entrypoints/training/train.sh <GPUs> <MODEL> <TRAIN_TYPE> <DATASET> <PATCH_TYPE> <PATCH_LOC> <ATTACK_TYPE> <NAME> [PR] [EPOCH]
 ```
 
-### 参数说明
+**Positional arguments:**
 
-| 参数 | 可选值 | 说明 |
-|------|--------|------|
-| `MODEL_TAG` | `llava-7b`, `llava-13b`, `qwenvl2-7b` | 目标模型 |
-| `TRAIN_TYPE` | `none`, `use_lora`, `freeze_vision`, `adapter` | 微调方式 |
-| `DATASET` | `coco`, `flickr8k`, `flickr30k`, `vqav2` | 训练数据集 |
-| `PATCH_TYPE` | `random`, `blended`, `blended_kt`, `warped`, `yellow`, `SIG`, `issba` | 触发器类型 |
-| `PATCH_LOC` | `random`, `four_corners`, `blended`, `blended_kt`, `middle` | 触发器位置 |
-| `ATTACK_TYPE` | `replace`, `fixed`, `badtoken` | 攻击方式 |
-| `LOSS` | `lm`（标准）, `trojvlm`, `vlood` | 训练损失函数 |
+| # | Argument | Values |
+|---|----------|--------|
+| 1 | GPUs | e.g. `0,1` |
+| 2 | MODEL | `llava-7b`, `llava-13b`, `qwen3-vl-8b`, `qwen3-vl-4b`, `iblip-7b` |
+| 3 | TRAIN_TYPE | `adapter`, `use_lora`, `freeze_vision`, `none` |
+| 4 | DATASET | `coco`, `vqav2` |
+| 5 | PATCH_TYPE | `random`, `blended`, `blended_kt`, `warped`, `SIG`, `issba` |
+| 6 | PATCH_LOC | `random_f`, `four_corners`, `middle`, `blended`, `blended_kt`, `issba` |
+| 7 | ATTACK_TYPE | `replace`, `random_insert`, `badtoken` |
+| 8 | NAME | Experiment suffix |
+| 9 | PR | Poison rate, default `0.5` |
+| 10 | EPOCH | Training epochs, default `2` |
 
-### 训练流水线
+**Key environment variable overrides:** `LR`, `PER_DEVICE_TRAIN_BS`, `GRAD_ACCUM_STEPS`, `DS_CONFIG`, `LOSS` (`lm`/`trojvlm`/`vlood`), `LORA_R`, `LORA_ALPHA`, `IMG_SIZE`, `BF16`.
 
-```
-train.sh → DeepSpeed → meta.py (MetaTrainer)
-  ├── 加载模型（LLaVA/Qwen2-VL）+ 选择微调方式
-  ├── 构建 CustomDataset（在线投毒：apply_trigger + 目标文本替换）
-  ├── 选择 Collator（LLaVA/Qwen）
-  ├── 选择 Trainer（Standard/TrojVLM/VLOOD）
-  └── trainer.train()
-```
-
-## 评估
+**Example:**
 
 ```bash
-# 通过 local.json 加载实验配置
-python vlm_backdoor/evaluation/llava_evaluator.py \
-    --local_json model_checkpoint/cvpr/llava-7b/coco/exp1/local.json \
-    --test_num 512 \
-    --show_output
+bash entrypoints/training/train.sh 0,1 llava-7b adapter coco random random_f replace badnet_0.1pr 0.1 2
 ```
 
-评估同时计算：
-- **ASR**（Attack Success Rate）：后门攻击成功率
-- **CIDEr**：图像描述质量
-- **VQA Score**：VQA 任务准确率
+Output is saved to `model_checkpoint/present_exp/<MODEL>/<DATASET>/<PATCH_TYPE>-<TRAIN_TYPE>-<NAME>/`.
 
-## 攻击类型总览
+---
 
-### 触发器类型 (`patch_type`)
-- **random**：随机噪声块
-- **blended / blended_kt**：全图混合（Hello Kitty 底图）
-- **warped**：WaNet 风格空间扭曲
-- **SIG**：正弦信号触发器
-- **issba**：ISSBA 隐写触发器
-- **yellow / yellow_ellipse**：纯色块/椭圆
+### 2. OrthoPurify Defense (Main Method)
 
-### 攻击方式 (`attack_type`)
-- **replace**：将整个回答替换为目标文本
-- **fixed**：在回答开头插入目标文本
-- **badtoken**：仅替换特定词（如 "man" → "bird"）
+#### LLaVA
 
-### 训练损失 (`loss`)
-- **lm**：标准语言模型损失
-- **trojvlm**：TrojVLM 损失（CE + SP embedding 相似度惩罚）
-- **vlood**：VLOOD 损失（含参考模型 KL 散度 + CCP 损失）
+```bash
+python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign.py [OPTIONS]
+```
 
-## 扩展指南
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--backdoor_dir` | — | Path to backdoor checkpoint directory |
+| `--model_path` | `models/llava-1.5-7b-hf` | Base model path |
+| `--k` | `5` | SVD subspace dimension |
+| `--n_samples` | `50` | Clean samples for pseudo-benign training |
+| `--num_epochs` | `2` | Pseudo-benign training epochs |
+| `--pseudo_lr` | `2e-4` | Learning rate |
+| `--angle_threshold` | `50.0` | Principal angle threshold (degrees) |
+| `--test_num` | `512` | Evaluation test images |
+| `--all_directions` | off | Use all directions above threshold |
+| `--skip_ground_truth` | off | Skip ground-truth benign (pseudo-benign only) |
+| `--skip_eval` | off | Only compute directions, skip evaluation |
+| `--purify_only` | off | Purify and save weights without evaluation |
 
-### 添加新模型
-1. 在 `vlm_backdoor/training/meta.py` 的 `load_model()` 中添加模型加载分支
-2. 实现对应的 Collator（参考 `vlm_backdoor/data/collators.py`）
-3. 实现对应的 Evaluator 子类（参考 `vlm_backdoor/evaluation/llava_evaluator.py`）
+Supports `torchrun` for multi-GPU distributed evaluation.
 
-### 添加新触发器
-在 `vlm_backdoor/attacks/triggers.py` 的 `apply_trigger()` 函数中添加新的 `patch_type` 分支。
+**Example:**
 
-### 添加新指标
-在 `vlm_backdoor/evaluation/metrics/` 下编写 HF evaluate 兼容的指标脚本。
+```bash
+CUDA_VISIBLE_DEVICES=0 python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign.py \
+    --backdoor_dir model_checkpoint/present_exp/llava-7b/coco/random-adapter-badnet_0.1pr \
+    --skip_ground_truth --test_num 512
+```
 
-## 已知问题
+#### Qwen3-VL
 
-- `failed_exp/` 目录中的旧实验代码 import 路径未更新，运行会报错
-- `dataset_loaders/create_test_datasets.py` 依赖已移除的 `shuffle_text` 模块
-- ISSBA 编码器路径需要手动配置
-- 数据集路径在代码中硬编码为 `/data/YBJ/cleansight/data/`，需根据实际环境修改
+```bash
+python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign_qwen3vl.py [OPTIONS]
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--backdoor_dir` | — | Path to backdoor checkpoint directory |
+| `--model_path` | `models/Qwen3-VL-8B-Instruct` | Base model path |
+| `--k` | `5` | SVD subspace dimension |
+| `--n_samples` | `64` | Clean samples |
+| `--pseudo_lr` | `5e-5` | Learning rate |
+| `--angle_threshold` | `50.0` | Principal angle threshold (degrees) |
+| `--test_num` | `512` | Evaluation test images |
+| `--all_directions` | off | Use all directions above threshold |
+| `--skip_ground_truth` | off | Skip ground-truth benign |
+| `--skip_bd_baseline` | off | Skip backdoor baseline evaluation |
+
+**Example:**
+
+```bash
+source venv_qwen3/bin/activate
+CUDA_VISIBLE_DEVICES=0 python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign_qwen3vl.py \
+    --backdoor_dir model_checkpoint/present_exp/qwen3-vl-8b/coco/random-adapter-badnet_0.1pr \
+    --skip_ground_truth --skip_bd_baseline --test_num 512
+```
+
+---
+
+### 3. Baseline Defenses
+
+| Method | Script | Key args |
+|--------|--------|----------|
+| Fine-tuning Recovery | `experiments/baseline_methods/exp7_finetune_recovery/exp7_finetune_recovery.py` | `--backdoor_dir`, `--n_sample_list`, `--test_num` |
+| Fine-Pruning | `experiments/baseline_methods/exp8_fine_pruning/exp8_fine_pruning.py` | `--backdoor_dir`, `--n_sample`, `--test_num` |
+| ANP | `experiments/baseline_methods/exp9_anp/anp_purify_llava.py` | `--backdoor_dir`, `--test_num` |
+| CLP | `experiments/baseline_methods/exp10_clp/clp_defense.py` | `--backdoor_dir`, `--u`, `--test_num` |
+
+Each baseline has a corresponding `*_qwen3vl.py` variant. Fine-Pruning and CLP support `torchrun` for distributed evaluation.
+
+---
+
+### 4. Evaluation
+
+```bash
+# LLaVA
+python vlm_backdoor/evaluation/llava_evaluator.py --local_json <dir>/local.json --test_num 512
+
+# Qwen3-VL
+python vlm_backdoor/evaluation/qwen3vl_evaluator.py --local_json <dir>/local.json --test_num 512
+
+# Multi-GPU
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 \
+    vlm_backdoor/evaluation/llava_evaluator.py --local_json <dir>/local.json --test_num 512
+```
+
+Metrics: ASR (attack success rate), CIDEr (captioning quality), VQA Score (VQA accuracy).

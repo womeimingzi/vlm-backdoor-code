@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 import torch
 
-from experiments.shared.exp1b_projection import extract_orthogonal_directions
+from experiments.shared.projection import extract_orthogonal_directions
 
 
 def get_2d_keys(state_dict: dict, skip_embeddings: bool = True) -> List[str]:

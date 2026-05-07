@@ -13,8 +13,8 @@ DEVICE = "cuda:0"
 MODEL_PATH = "/data/YBJ/cleansight/models/llava-1.5-7b-hf"
 
 # Purified state dicts
-K10_PATH = "experiments/main_method/orthopurify_exp1c/checkpoints/llava_vqav2_blended_n64_k10/purified_mmprojector_state_dict.pth"
-K5_PATH = "experiments/main_method/orthopurify_exp1c/checkpoints/llava_blended_kt-adapter-blended_kt_pr0.3/purified_mmprojector_state_dict.pth"
+K10_PATH = "experiments/main_method/orthopurify/checkpoints/llava_vqav2_blended_n64_k10/purified_mmprojector_state_dict.pth"
+K5_PATH = "experiments/main_method/orthopurify/checkpoints/llava_blended_kt-adapter-blended_kt_pr0.3/purified_mmprojector_state_dict.pth"
 
 # Also load the backdoor model and clean model for comparison
 BD_DIR = "model_checkpoint/present_exp/llava-7b/vqav2/blended_kt-adapter-blended_kt_pr0.3"
