@@ -99,13 +99,13 @@ for i in "${!ATTACK_NAMES[@]}"; do
     # ── 3. CLP defense (u=1.0, skip baseline) ───────────────────────────────
     log "  [${atk}] Step 3/4: CLP defense (u=1.0)"
 
-    CUDA_VISIBLE_DEVICES=${GPU_EVAL} python experiments/baseline_methods/exp10_clp/clp_defense.py \
+    CUDA_VISIBLE_DEVICES=${GPU_EVAL} python experiments/baseline_methods/clp/clp_defense.py \
         --backdoor_dir "${CKPT_DIR}" \
         --model_path "${MODEL_PATH}" \
         --u 1.0 \
         --skip_baseline \
         --save_weights \
-        --output_dir "experiments/baseline_methods/exp10_clp/results/llava13b_${NAME}" \
+        --output_dir "experiments/baseline_methods/clp/results/llava13b_${NAME}" \
         --test_num ${TEST_NUM} \
         > "${LOG_DIR}/${atk}_clp.log" 2>&1
 
@@ -114,7 +114,7 @@ for i in "${!ATTACK_NAMES[@]}"; do
     # ── 4. exp1c (k=10, n_samples=64, all_directions, skip baseline/GT) ────
     log "  [${atk}] Step 4/4: exp1c pseudo-benign purification (k=10, n=64, all_dirs)"
 
-    CUDA_VISIBLE_DEVICES=${GPU_EVAL} python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign.py \
+    CUDA_VISIBLE_DEVICES=${GPU_EVAL} python experiments/main_method/orthopurify/purify_llava.py \
         --backdoor_dir "${CKPT_DIR}" \
         --model_path "${MODEL_PATH}" \
         --k 10 \
@@ -122,7 +122,7 @@ for i in "${!ATTACK_NAMES[@]}"; do
         --all_directions \
         --skip_baseline \
         --skip_ground_truth \
-        --output_dir "experiments/main_method/orthopurify_exp1c/checkpoints/llava13b_${NAME}" \
+        --output_dir "experiments/main_method/orthopurify/checkpoints/llava13b_${NAME}" \
         --test_num ${TEST_NUM} \
         > "${LOG_DIR}/${atk}_exp1c.log" 2>&1
 

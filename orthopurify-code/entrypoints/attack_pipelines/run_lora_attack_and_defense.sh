@@ -118,7 +118,7 @@ for BD_DIR in "$BADNET_DIR" "$WANET_DIR" "$TROJVLM_DIR"; do
     BD_NAME="$(basename "$BD_DIR")"
     echo ""
     echo "[CLP] Defending: ${BD_NAME}"
-    CUDA_VISIBLE_DEVICES=$EVAL_GPU python experiments/baseline_methods/exp10_clp/clp_defense.py \
+    CUDA_VISIBLE_DEVICES=$EVAL_GPU python experiments/baseline_methods/clp/clp_defense.py \
         --backdoor_dir "$BD_DIR" \
         --u 1 \
         --test_num "$TEST_NUM" \
@@ -132,7 +132,7 @@ done
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "======================================================================"
-echo "Phase 3: exp1c Pseudo-Benign Defense"
+echo "[$(date '+%F %T')] orthopurify Pseudo-Benign Defense"
 echo "  GPU: ${EVAL_GPU} | k=10 | n_samples=64 | all_directions"
 echo "======================================================================"
 
@@ -140,14 +140,14 @@ for BD_DIR in "$BADNET_DIR" "$WANET_DIR" "$TROJVLM_DIR"; do
     BD_NAME="$(basename "$BD_DIR")"
     echo ""
     echo "[exp1c] Defending: ${BD_NAME}"
-    CUDA_VISIBLE_DEVICES=$EVAL_GPU python experiments/main_method/orthopurify_exp1c/exp1c_pseudo_benign.py \
+    CUDA_VISIBLE_DEVICES=$EVAL_GPU python experiments/main_method/orthopurify/purify_llava.py \
         --backdoor_dir "$BD_DIR" \
         --k 10 \
         --n_samples 64 \
         --all_directions \
         --test_num "$TEST_NUM" \
         --skip_keep_only \
-        2>&1 | tee "${LOG_DIR}/exp1c_${BD_NAME}.log"
+        2>&1 | tee "${LOG_DIR}/orthopurify_${BD_NAME}.log"
     echo "[exp1c] ${BD_NAME} complete at $(date)"
 done
 
